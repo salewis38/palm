@@ -1,0 +1,132 @@
+# version 2022.05.09
+# settings.py file for use with palm.py
+
+# SolCast PV forecast generator. Two forecasts are obtained, one per array
+class Solcast:
+    enable = True
+    key = "xxxx"
+    url_se = "https://api.solcast.com.au/rooftop_sites/xxxx"
+    url_sw = "https://api.solcast.com.au/rooftop_sites/xxxx"
+    cmd = "/forecasts?format=json"
+
+class PVData:
+    # Sets power threshold for virtual sunset, used with automated lighting
+    PwrThreshold = 15
+
+# PVOutput.org data logging/analysis service
+class PVOutput:
+    enable = True
+    url= "https://pvoutput.org/service/r2/"
+    key = "xxxx"
+    sid = "xxxxx"
+
+# API for obtaining current UK carbon intensity of electricity generation
+class CarbonIntensity:
+    enable = True
+    url = "https://api.carbonintensity.org.uk/regional/"
+    RegionID = "england"
+    Threshold = 250
+
+# Weather data
+class OpenWeatherMap:
+    enable = True
+    url = "https://api.openweathermap.org/data/2.5/"
+    url_weather = "https://api.openweathermap.org/data/2.5/weather?"
+    url_forecast = "https://api.openweathermap.org/data/2.5/forecast?"
+    city_id = "xxxx"
+    payload = {
+    "lat"   : xxxx,
+    "lon"   : xxxx,
+    "appid" : "xxxx",
+    "exclude" : "daily",
+    "mode"  : 'JSON'
+    }
+
+# User settings for GivEnergy inverter API
+class GE:
+    enable = True
+    url = "https://api.givenergy.cloud/v1/inverter/CExxxxxx/"
+    key = "XXXX"
+    
+    min_soc_target = 30
+    max_soc_target = 40
+
+    # SoC calculation is disabled in the winter months as consumption >> generation
+    winter = ["01", "02", "03", "10", "11", "12"]
+
+    # Nominal battery capacity
+    batt_capacity = 10.4
+
+    # Inverter charge/discharge rate
+    charge_rate = 3
+
+    # Default data for base load. Overwritten by actual data if available
+    base_load = [0.3, 2, 0.3, 0.3, 0.3, 0.5, 1.7, 1.8, 2.6, 1.5, 0.5, 2.5,\
+        1.3, 1, 1.5, 0.5, 0.3, 1, 1.5, 1, 0.6, 0.5, 0.5, 0.3]
+
+    # Start time for Overnight Charge
+    start_time = "00:30"
+
+    # End time for Overnight Charge
+    end_time = "04:30"
+
+# MiHome devices are used to activate various loads
+class MiHome:
+    enable = True
+    url = "https://mihome4u.co.uk/api/v1/subdevices/"
+    UserID = "xxxx"
+    key = "xxxx"
+    
+# This section defines the various loads and operating parameters
+LOAD_CONFIG = {
+    "LoadPriorityOrder": [
+        "Load3",
+        "Load1",
+        "Load2"
+    ],
+    "Load1": {
+        "DeviceName"    :       "Towel Rails",
+        "DeviceID"      :       "xxxx",
+        "EarlyStart"    :       "10:00",
+        "LateStart"     :       "14:00",
+        "FinishTime"    :       "15:00",
+        "MinOnTime"     :        5,
+        "MinDailyTarget":        10,
+        "MaxDailyTarget":        120,
+        "MaxCO2"        :        200,
+        "MaxTemp"       :        20,
+        "PwrLoad"       :        800,
+        "PwrStart"      :        750,
+        "Hysteresis"    :        250
+    },
+    "Load2": {
+        "DeviceName"    :       "Battery Charger",
+        "DeviceID"      :       "xxxx",
+        "EarlyStart"    :       "09:00",
+        "LateStart"     :       "15:00",
+        "FinishTime"    :       "16:00",
+        "MinOnTime"     :        5,
+        "MinDailyTarget":        15,
+        "MaxDailyTarget":        240,
+        "MaxCO2"        :        300,
+        "MaxTemp"       :        25,
+        "PwrLoad"       :        40,
+        "PwrStart"      :        30,
+        "Hysteresis"    :        50
+    },
+    "Load3": {
+        "DeviceName"    :       "LEAF 2kW",
+        "DeviceID"      :       "xxxx",
+        "EarlyStart"    :       "09:00",
+        "LateStart"     :       "15:00",
+        "FinishTime"    :       "16:00",
+        "MinOnTime"     :        20,
+        "MinDailyTarget":        0,
+        "MaxDailyTarget":        420,
+        "MaxCO2"        :        400,
+        "MaxTemp"       :        30,
+        "PwrLoad"       :        2000,
+        "PwrStart"      :        1500,
+        "Hysteresis"    :        750
+    }
+}
