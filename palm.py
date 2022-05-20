@@ -266,6 +266,7 @@ class GivEnergyObj:
 
                 #  Reduce nightly charge to capture max export
                 tgt_soc = max(stgs.GE.min_soc_target, 130 - min_charge_pcnt, 200 - max_charge_pcnt)
+                tgt_soc = min(max(tgt_soc, 0), 100)  # Limit range
 
                 print()
                 print("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("Info; SoC Calcs Summary;"\
@@ -543,8 +544,8 @@ class EnvObj:
 
         self.sr_time: str = "06:00"
         self.virt_sr_time: str = "09:00"
-        self.ss_time: str = "18:00"
-        self.virt_ss_time: str = "18:00"
+        self.ss_time: str = "21:00"
+        self.virt_ss_time: str = "21:00"
 
     def update_co2(self):
         """Import latest CO2 intensity data."""
@@ -578,10 +579,10 @@ class EnvObj:
 
     def reset_sr_ss(self):
         """Reset sunrise & sunset each day."""
-        self.sr_time = "06:00"
-        self.virt_sr_time = "09:00"
-        self.ss_time = "18:00"
-        self.virt_ss_time = "18:00"
+        self.sr_time: str = "06:00"
+        self.virt_sr_time: str = "09:00"
+        self.ss_time: str = "21:00"
+        self.virt_ss_time: str = "21:00"
 
     def update_weather_curr(self):
         """Download latest weather from OpenWeatherMap."""
@@ -710,7 +711,7 @@ def balance_loads():
         if ge.sys_status[1]['solar']['power'] < pwr_threshold < ge.sys_status[0]['solar']['power']:
             new_virt_sr_ss = True
             env_obj.virt_sr_time = TIME_NOW_VAR
-    elif 900 < TIME_NOW_MINS_VAR < time_to_mins(env_obj.ss_time):  # It's afternoon, gen ended?
+    elif TIME_NOW_MINS_VAR > 900:  # It's afternoon, gen ended?
         if ge.sys_status[0]['solar']['power'] < pwr_threshold < ge.sys_status[1]['solar']['power']:
             new_virt_sr_ss = True
             env_obj.virt_ss_time = TIME_NOW_VAR
@@ -718,7 +719,7 @@ def balance_loads():
             new_virt_sr_ss = True
             env_obj.virt_ss_time = env_obj.ss_time
 
-    if new_virt_sr_ss and DEBUG_MODE:
+    if new_virt_sr_ss:
         print('Info; VSunrise/set: VSR:', env_obj.virt_sr_time, "VSS:", env_obj.virt_ss_time)
 
     # Running total of available power. Positive means import
