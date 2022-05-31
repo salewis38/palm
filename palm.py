@@ -52,8 +52,9 @@ import settings as stgs
 # v0.8.0    08/May/22 Moved SoCcalc to GivEnergy, settings.py replaces palm_Config.json
 # v0.8.1    15/May/22 Rationalised sunset in env_obj, compensated for AC Charge discharge
 # v0.8.2    21/May/22 Added exception catchers for suspect GE data
+# v0.8.3    31/May/22 Softened overnight SoC reduction for shoulder months
 
-PALM_VERSION = "v0.8.2"
+PALM_VERSION = "v0.8.3"
 
 #  Future improvements:
 #
@@ -216,32 +217,45 @@ class GivEnergyObj:
 
         if register == "64":
             reg_str = "(AC Charge 1 Start Time)"
+        elif register == "71":
+            reg_str = "(Battery Reserve)"
         elif register == "77":
             reg_str = "(AC Charge Upper % Limit)"
         else:
-            reg_str = "Unknown"
+            reg_str = "(Unknown)"
 
         print("Info; Setting Register", register, reg_str, "to ", value, "Response:", resp)
 
     def set_soc(self, tgt_soc, batt_max_charge):
         """ Sets start time and target SoC for overnight charge."""
 
-        start_time = stgs.GE.start_time
-        if tgt_soc < self.soc:  # Delay start to allow partial discharge
-            batt_charge_hrs = batt_max_charge / stgs.GE.charge_rate
-            charge_time_mins = 60 * batt_charge_hrs * tgt_soc / 100
-            discharge_time_mins = 60 * batt_charge_hrs * (self.soc - tgt_soc) / 100
-            end_time_mins = time_to_mins(stgs.GE.end_time)
-            start_time_mins = time_to_mins(stgs.GE.start_time)
-            start_time = time_to_hrs(max(start_time_mins + discharge_time_mins,
-                end_time_mins - charge_time_mins))
+        end_time_mins = time_to_mins(stgs.GE.end_time)
+        start_time_mins = time_to_mins(stgs.GE.start_time)
+        batt_charge_mins = 60 * batt_max_charge / stgs.GE.charge_rate
+
+        # Delay charge start to allow for any partial discharge
+        charge_time_mins = batt_charge_mins * (tgt_soc - stgs.GE.batt_reserve) / 100
+        discharge_time_mins = batt_charge_mins * (self.soc - tgt_soc) / 100
+        start_time = time_to_hrs(max(start_time_mins + discharge_time_mins,
+            end_time_mins - charge_time_mins))
+
         self.set_inverter_register("77", tgt_soc)
-        self.set_inverter_register("64", start_time)
+#       Comment out to see how battery discharges without adjusting start time
+#        self.set_inverter_register("64", start_time)
+#        self.set_inverter_register("71", tgt_soc)
+
+    def restore_params(self):
+        """Restore inverter parameters after overnight charge"""
+
+        self.set_inverter_register("77", 100)
+        self.set_inverter_register("64", stgs.GE.start_time)
+        self.set_inverter_register("71", stgs.GE.batt_reserve)
+
 
     def compute_tgt_soc(self, gen_fcast, wgt_10: int, wgt_50: int, wgt_90: int, commit: bool):
         """Compute tomorrow's overnight SoC target"""
 
-        batt_max_charge: float = stgs.GE.batt_capacity * 0.84  # Usable battery capacity
+        batt_max_charge: float = stgs.GE.batt_max_charge
 
         month = LONG_TIME_NOW_VAR[3:5]
 
@@ -294,7 +308,12 @@ class GivEnergyObj:
                 min_charge_pcnt = int(100 * min_charge / batt_max_charge)
 
                 #  Reduce nightly charge to capture max export
-                tgt_soc = max(stgs.GE.min_soc_target, 130 - min_charge_pcnt, 200 - max_charge_pcnt)
+                if month in stgs.GE.shoulder:
+                    tgt_soc = max(stgs.GE.max_soc_target, 130 - min_charge_pcnt,
+                                  200 - max_charge_pcnt)
+                else:
+                    tgt_soc = max(stgs.GE.min_soc_target, 130 - min_charge_pcnt,
+                                  200 - max_charge_pcnt)
                 tgt_soc = int(min(max(tgt_soc, 0), 100))  # Limit range
 
                 print()
@@ -313,9 +332,11 @@ class GivEnergyObj:
         print("Info; SoC Summary; ", LONG_TIME_NOW_VAR, "; Tom Fcast Gen (kWh); ",
             gen_fcast.pv_est10_day[0], ";", gen_fcast.pv_est50_day[0], ";",
             gen_fcast.pv_est90_day[0], "; SoC Target (%); ", tgt_soc,
-            "; Today Gen (kWh); ", round(int(PVO_PRT_PAYLOAD["v1"]) / 1000, 2))
+            "; Today Gen (kWh); ", round(self.pv_energy) / 1000, 2)
 
         if commit:
+            if tgt_soc < self.soc:  # Avoid unnecessary discharge
+                tgt_soc = max(tgt_soc, stgs.GE.max_soc_target)
             self.set_soc(tgt_soc, batt_max_charge)
 
 # End of GivEnergyObj() class definition
@@ -721,6 +742,12 @@ def put_pv_output():
     post_date = time.strftime("%Y%m%d", time.localtime())
     post_time = time.strftime("%H:%M", time.localtime())
 
+    batt_power_out = ge.batt_power if ge.batt_power > 0 else 0
+    batt_power_in = -1 * ge.batt_power if ge.batt_power < 0 else 0
+    total_cons = ge.consumption - ge.batt_power
+    load_pwr = total_cons if total_cons > 0 else 0
+
+
     payload = {
         "t"   : post_time,
         "key" : key,
@@ -728,7 +755,22 @@ def put_pv_output():
         "d"   : post_date
     }
 
-    payload.update(PVO_PRT_PAYLOAD)  # Concatenate the data, don't escape ":"
+    part_payload = {
+        "v1"  : ge.pv_energy,
+        "v2"  : ge.pv_power,
+        "v3"  : ge.grid_energy,
+        "v4"  : load_pwr,
+        "v5"  : env_obj.temp_deg_c,
+        "v6"  : ge.line_voltage,
+        "v7"  : "",
+        "v8"  : batt_power_out,
+        "v9"  : env_obj.co2_intensity,
+        "v10" : CO2_USAGE_VAR,
+        "v11" : batt_power_in,
+        "v12" : ge.soc
+    }
+
+    payload.update(part_payload)  # Concatenate the data, don't escape ":"
     payload = urlencode(payload, doseq=True, quote_via=lambda x,y,z,w: x)
 
     time.sleep(2)  # PVOutput has a 1 second rate limit. Avoid clash with any reads
@@ -742,7 +784,7 @@ def put_pv_output():
             print(error)
             print()
             return()
-    print("Data; Write to pvoutput.org;", post_date,";", post_time, ";", PVO_PRT_PAYLOAD)
+    print("Data; Write to pvoutput.org;", post_date,";", post_time, ";", part_payload)
     return()
 
 #  End of put_pv_output()
@@ -812,17 +854,11 @@ if __name__ == '__main__':
             DEBUG_MODE = True
             print("Info; Running in debug mode")
 
-    # Read in load configuration file
-
-    LOAD_CONFIG = stgs.LOAD_CONFIG
-
-    # Declare Power objects
+    # GivEnergy power object initialisation
     ge: GivEnergyObj = GivEnergyObj()
     ge.get_load_hist()
 
-    # Predict PV output
-    #insol: InsolationObj = InsolationObj()
-    #insol.update_insol()
+    # Solcast PV prediction object initialisation
     solcast: SolcastObj = SolcastObj()
     solcast.update()
 
@@ -835,9 +871,9 @@ if __name__ == '__main__':
     # Create an object for each load
     load_obj: List[LoadObj] = []
     load_payload: List[str] = []
-    NUM_LOADS: int = len(LOAD_CONFIG['LoadPriorityOrder'])
+    NUM_LOADS: int = len(stgs.LOAD_CONFIG['LoadPriorityOrder'])
     for LOAD_INDEX_VAR in range(NUM_LOADS):
-        load_payload = LOAD_CONFIG[LOAD_CONFIG['LoadPriorityOrder'][LOAD_INDEX_VAR]]
+        load_payload = stgs.LOAD_CONFIG[stgs.LOAD_CONFIG['LoadPriorityOrder'][LOAD_INDEX_VAR]]
         load_obj.append(LoadObj(LOAD_INDEX_VAR, load_payload))
 
     print("Info; Entering main loop...")
@@ -865,15 +901,14 @@ if __name__ == '__main__':
         TIME_NOW_MINS_VAR = time_to_mins(TIME_NOW_VAR)
 
         # Run activities, depending on specific intervals
-        if TIME_NOW_MINS_VAR == 1435:  # 5 to midnight for next days forecasts
-            #do_get_insolation = threading.Thread(target=insol.update_insol())
-            #do_get_insolation.daemon = True
-            #do_get_insolation.start()
 
+        # 5 minutes to midnight for next days forecasts
+        if TIME_NOW_MINS_VAR == 1435:
             do_get_solcast = threading.Thread(target=solcast.update())
             do_get_solcast.daemon = True
             do_get_solcast.start()
 
+        # 2 minutes to midnight for setting overnight battery charging target
         if (DEBUG_MODE and LOOP_COUNTER_VAR == 2) or TIME_NOW_MINS_VAR == 1438:
             # compute & set SoC target
             ge.get_load_hist()
@@ -888,50 +923,35 @@ if __name__ == '__main__':
             # Reset sunrise and sunset for next day
             env_obj.reset_sr_ss()
 
-        if LOOP_COUNTER_VAR % 15 == 14:  # Update carbon intensity every 15 mins
+        # Reset GivEnergy parameters at end of overnight charge
+        if (DEBUG_MODE and LOOP_COUNTER_VAR == 5) or \
+            TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.end_time):
+            ge.restore_params()
+
+        # Update carbon intensity every 15 mins
+        if LOOP_COUNTER_VAR % 15 == 14:
             do_get_carbon_intensity = threading.Thread(target=env_obj.update_co2())
             do_get_carbon_intensity.daemon = True
             do_get_carbon_intensity.start()
 
-        if LOOP_COUNTER_VAR % 15 == 14:  # Update weather every 10 mins
+        # Update weather every 10 mins
+        if LOOP_COUNTER_VAR % 15 == 14:
             do_get_weather = threading.Thread(target=env_obj.update_weather_curr())
             do_get_weather.daemon = True
             do_get_weather.start()
 
-        #  Refresh utilisation data from GivEnergy server
+        #  Refresh utilisation data from GivEnergy server. Check every minute
         ge.get_latest_data()
-
         CO2_USAGE_VAR = int(env_obj.co2_intensity * ge.grid_power / 1000)
 
+        #  Turn loads on or off. Check every minute
         do_balance_loads = threading.Thread(target=balance_loads())
         do_balance_loads.daemon = True
         do_balance_loads.start()
 
         # Publish data to PVOutput.org every 5 minutes (or 5 cycles as a catch-all)
         if DEBUG_MODE or TIME_NOW_MINS_VAR % 5 == 3 or LOOP_COUNTER_VAR > PVO_TSTAMP_VAR + 4:
-
             PVO_TSTAMP_VAR = LOOP_COUNTER_VAR
-
-            batt_power_out = ge.batt_power if ge.batt_power > 0 else 0
-            batt_power_in = -1 * ge.batt_power if ge.batt_power < 0 else 0
-            total_cons = ge.consumption - ge.batt_power
-            load_pwr = total_cons if total_cons > 0 else 0
-
-            PVO_PRT_PAYLOAD = {
-                "v1"  : ge.pv_energy,
-                "v2"  : ge.pv_power,
-                "v3"  : ge.grid_energy,
-                "v4"  : load_pwr,
-                "v5"  : env_obj.temp_deg_c,
-                "v6"  : ge.line_voltage,
-                "v7"  : "",
-                "v8"  : batt_power_out,
-                "v9"  : env_obj.co2_intensity,
-                "v10" : CO2_USAGE_VAR,
-                "v11" : batt_power_in,
-                "v12" : ge.soc,
-            }
-
             do_put_pv_output = threading.Thread(target=put_pv_output)
             do_put_pv_output.daemon = True
             do_put_pv_output.start()

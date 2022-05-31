@@ -48,14 +48,29 @@ class GE:
     url = "https://api.givenergy.cloud/v1/inverter/CExxxxxx/"
     key = "XXXX"
     
-    min_soc_target = 30
-    max_soc_target = 40
-
-    # SoC calculation is disabled in the winter months as consumption >> generation
+    # Disable SoC calculation in the winter months as consumption >> generation
     winter = ["01", "02", "03", "10", "11", "12"]
+
+    # Throttle SoC calculation in shoulder months as consumption can vary with heating coming on
+    shoulder = ["04", "05", "09"]
+
+    # Lower limit for state of charge (summertime)
+    min_soc_target = 30
+
+    # Additional SoC correction for shoulder months and also allow discharge to this level
+    # if actual SoC is higher than target 
+    max_soc_target = 45
+
+    # Battery reserve for power cuts (minmum of 4%)
+    batt_reserve = 4
 
     # Nominal battery capacity
     batt_capacity = 10.4
+
+    # Proportion of battery that's usable
+    batt_utilisation = 0.85
+
+    batt_max_charge = batt_capacity * batt_utilisation
 
     # Inverter charge/discharge rate
     charge_rate = 3
