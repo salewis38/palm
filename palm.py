@@ -53,6 +53,7 @@ import settings as stgs
 # v0.8.1    15/May/22 Rationalised sunset in env_obj, compensated for AC Charge discharge
 # v0.8.2    21/May/22 Added exception catchers for suspect GE data
 # v0.8.3    31/May/22 Softened overnight SoC reduction for shoulder months
+# v0.8.3a   17/Jul/22 Fixed negative grid energy
 
 PALM_VERSION = "v0.8.3"
 
@@ -148,7 +149,9 @@ class GivEnergyObj:
                         self.meter_status[index] = self.meter_status[0]
                         index += 1
                 self.pv_energy = int(self.meter_status[0]['today']['solar'] * 1000)
-                self.grid_energy = int(self.meter_status[0]['today']['consumption'] * 1000)
+
+                # Daily grid energy cannot be <0 for PVOutput.org (battery charge cannot be less than midnight value)
+                self.grid_energy = max(int(self.meter_status[0]['today']['consumption'] * 1000), 0)
 
     def get_load_hist(self):
         """Download historical consumption data from GivEnergy and pack array for next SoC calc"""
@@ -335,8 +338,8 @@ class GivEnergyObj:
             "; Today Gen (kWh); ", round(self.pv_energy) / 1000, 2)
 
         if commit:
-            if tgt_soc < self.soc:  # Avoid unnecessary discharge
-                tgt_soc = max(tgt_soc, stgs.GE.max_soc_target)
+#            if tgt_soc < self.soc:  # Avoid unnecessary discharge
+#                tgt_soc = max(tgt_soc, stgs.GE.max_soc_target)
             self.set_soc(tgt_soc, batt_max_charge)
 
 # End of GivEnergyObj() class definition
@@ -649,8 +652,8 @@ class EnvObj:
 
         self.sr_time: str = "06:00"
         self.virt_sr_time: str = "09:00"
-        self.ss_time: str = "21:00"
-        self.virt_ss_time: str = "21:00"
+        self.ss_time: str = "21:30"
+        self.virt_ss_time: str = "21:30"
 
     def update_weather_curr(self):
         """Download latest weather from OpenWeatherMap."""
@@ -816,7 +819,7 @@ def balance_loads():
             if (unique_load.priority == priority and
                 unique_load.curr_state == "OFF" and
                 net_usage_est * -1 >= unique_load.est_power and
-                net_usage_est < 0 and ge.soc > 95):  # Capacity exists, turn on load
+                net_usage_est < 0 and ge.soc > 98):  # Capacity exists, turn on load
 
                 net_usage_est += unique_load.toggle("ON")
 
@@ -825,7 +828,7 @@ def balance_loads():
         for unique_load in load_obj:
             if (unique_load.priority == priority and
                 unique_load.curr_state == "ON" and
-                (net_usage_est > 0 or ge.soc < 90)):  # Turn off load
+                (net_usage_est > 0 or ge.soc < 95)):  # Turn off load
 
                 net_usage_est -= unique_load.toggle("OFF")
 
@@ -895,6 +898,8 @@ if __name__ == '__main__':
                 print("Debug mode... running with 5 second loop time")
             time.sleep(5)
 
+        sys.stdout.flush()
+
         # Set parameters for this frame
         LONG_TIME_NOW_VAR = time.strftime("%d-%m-%Y %H:%M:%S", time.localtime())
         TIME_NOW_VAR = LONG_TIME_NOW_VAR[11:]
@@ -924,9 +929,9 @@ if __name__ == '__main__':
             env_obj.reset_sr_ss()
 
         # Reset GivEnergy parameters at end of overnight charge
-        if (DEBUG_MODE and LOOP_COUNTER_VAR == 5) or \
-            TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.end_time):
-            ge.restore_params()
+ #       if (DEBUG_MODE and LOOP_COUNTER_VAR == 5) or \
+ #           TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.end_time):
+ #           ge.restore_params()
 
         # Update carbon intensity every 15 mins
         if LOOP_COUNTER_VAR % 15 == 14:
@@ -955,8 +960,6 @@ if __name__ == '__main__':
             do_put_pv_output = threading.Thread(target=put_pv_output)
             do_put_pv_output.daemon = True
             do_put_pv_output.start()
-
-        sys.stdout.flush()
 
         LOOP_COUNTER_VAR += 1
         if TIME_NOW_MINS_VAR == 0:  # Reset frame counter every 24 hours
