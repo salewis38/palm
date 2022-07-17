@@ -8,10 +8,8 @@ MiHome remote controlled switches for various loads, controlled via hub and API
 
 It performs the following functions:
 
-* upload of power data to PVOutput.org for long-term analysis
+* aggregating data from multiple sources and upload to PVOutput.org every for 5 minutes for long-term analysis
 
-* setting overnight battery charge target for off-peak electricity usage
+* setting overnight battery charge target for off-peak electricity usage, based on forecast generation and previous day's consumption
 
 * a simple sequencer for load management, based on time, temperature, battery charge and CO2/kWh
-
-It contains several other, related functions, such as gathering local weather data.
