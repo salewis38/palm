@@ -1,0 +1,8 @@
+#!/bin/bash
+cd /home/pi/palm
+LOGFILENAME=../logs/palm_log_`date +%Y%m%d-%H%M`.txt
+echo Log File: $LOGFILENAME
+touch $LOGFILENAME
+/bin/rm ../logs/palm_log.txt
+ln -s $LOGFILENAME ../logs/palm_log.txt
+nohup ./palm.py >> ../logs/palm_log.txt 2>> ../logs/palm_error.txt
