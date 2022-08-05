@@ -1,11 +1,11 @@
-#!/usr/bin/env python3.8
+#!/usr/bin/env python3
 """PALM - PV Active Load Manager."""
 
 import sys
 import time
 import json
 from datetime import datetime, timedelta
-from typing import Tuple, List
+from typing import Tuple
 import requests
 import settings as stgs
 
@@ -34,114 +34,27 @@ import settings as stgs
 # WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ###########################################
-# This code provides several functions:
-# 1. Collection of generation/consumption data from GivEnergy API & upload to PVOutput
-# 2. Load management - lights, excess power dumping
-# 3. Setting overnight charge point, based on SolCast forecast & actual usage
+# This code sets overnight charge point, based on SolCast forecast & actual usage
 #
 ###########################################
 
 # Chamgelog:
 
 # v0.8.3aSoC   28/Jul/22 Branch from palm - SoC only
+# v0.8.3bSoC   05/Aug/22 Improved commenting, removed legacy code
 
-PALM_VERSION = "v0.8.3aSoC"
+PALM_VERSION = "v0.8.3bSoC"
 
 #  Future improvements:
 #
 # -*- coding: utf-8 -*-
 
 class GivEnergyObj:
-    """Class for GivEnergy inverter"""
+    """Class for GivEnergy inverter, used to interface to the inverter, store local data, etc"""
 
     def __init__(self):
-        self.sys_status: List[str] = [""] * 5
-        self.meter_status: List[str] = [""] * 5
-        self.read_time_mins: int = -100
-        self.line_voltage: float = 0
-        self.grid_power: int = 0
-        self.grid_energy: int = 0
-        self.pv_power: int = 0
-        self.pv_energy: int = 0
-        self.batt_power: int = 0
-        self.consumption: int = 0
         self.soc: int = 0
         self.base_load = stgs.GE.base_load
-
-    def get_latest_data(self):
-        """Download latest data from GivEnergy."""
-
-        utc_timenow_mins = time_to_mins(time.strftime("%H:%M:%S", time.gmtime()))
-        if (utc_timenow_mins > self.read_time_mins + 5 or
-            utc_timenow_mins < self.read_time_mins):  # Update every 5 minutes plus day rollover
-
-            url = stgs.GE.url + "system-data/latest"
-            key = stgs.GE.key
-            headers = {
-                'Authorization': 'Bearer  ' + key,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            }
-
-            try:
-                resp = requests.request('GET', url, headers=headers)
-            except requests.exceptions.RequestException as error:
-                print(error)
-                return
-
-            if len(resp.content) > 100:
-                for index in range(4, -1, -1):  # Right shift old data
-                    if index > 0:
-                        self.sys_status[index] = self.sys_status[index - 1]
-                    else:
-                        try:
-                            self.sys_status[index] = \
-                                json.loads(resp.content.decode('utf-8'))['data']
-                        except:
-                            print("Error reading GivEnergy system status ", TIME_NOW_VAR)
-                            print(resp.content)
-                            self.meter_status[index] = self.meter_status[index + 1]
-                if LOOP_COUNTER_VAR == 0:  # Pack array on startup
-                    index = 1
-                    while index < 5:
-                        self.sys_status[index] = self.sys_status[0]
-                        index += 1
-                self.read_time_mins = time_to_mins(self.sys_status[0]['time'][11:])
-                self.line_voltage = float(self.sys_status[0]['grid']['voltage'])
-                self.grid_power = -1 * int(self.sys_status[0]['grid']['power'])  # -ve = export
-                self.pv_power = int(self.sys_status[0]['solar']['power'])
-                self.batt_power = int(self.sys_status[0]['battery']['power'])  # -ve = charging
-                self.consumption = int(self.sys_status[0]['consumption'])
-                self.soc = int(self.sys_status[0]['battery']['percent'])
-
-            url = stgs.GE.url + "meter-data/latest"
-            try:
-                resp = requests.request('GET', url, headers=headers)
-            except requests.exceptions.RequestException as error:
-                print(error)
-                return
-
-            if len(resp.content) > 100:
-                for index in range(4, -1, -1):  # Right shift old data
-                    if index > 0:
-                        self.meter_status[index] = self.meter_status[index - 1]
-                    else:
-                        try:
-                            self.meter_status[index] = \
-                                json.loads(resp.content.decode('utf-8'))['data']
-                        except:
-                            print("Error reading GivEnergy meter status ", TIME_NOW_VAR)
-                            print(resp.content)
-                            self.meter_status[index] = self.meter_status[index + 1]
-                if LOOP_COUNTER_VAR == 0:  # Pack array on startup
-                    index = 1
-                    while index < 5:
-                        self.meter_status[index] = self.meter_status[0]
-                        index += 1
-                self.pv_energy = int(self.meter_status[0]['today']['solar'] * 1000)
-
-                # Daily grid energy cannot be <0 for PVOutput.org
-                self.grid_energy = max(int(self.meter_status[0]['today']['consumption'] * 1000), 0)
 
     def get_load_hist(self, time_now_mins):
         """Download historical consumption data from GivEnergy and pack array for next SoC calc"""
@@ -166,7 +79,7 @@ class GivEnergyObj:
             print(error)
             return
 
-        if len(resp.content) > 100:
+        if len(resp.content) > 100:  # Basic error check... could be improved over time
             history = json.loads(resp.content.decode('utf-8'))
             index = 0
             counter = 0
@@ -183,7 +96,7 @@ class GivEnergyObj:
                 counter += 1
                 prev_energy = current_energy
                 index += 12
-            print("Info; Load Calc Summary:", current_energy, self.base_load)
+            print("Load Calc Summary:", current_energy, self.base_load)
 
     def set_inverter_register(self, register: str, value: str):
         """Set target charge for overnight charging."""
@@ -217,25 +130,13 @@ class GivEnergyObj:
         else:
             reg_str = "(Unknown)"
 
-        print("Info; Setting Register", register, reg_str, "to ", value, "Response:", resp)
+        print("Setting Register", register, reg_str, "to ", value, "Response:", resp)
+        print()
 
-    def set_soc(self, tgt_soc, batt_max_charge):
+    def set_soc(self, tgt_soc):
         """ Sets start time and target SoC for overnight charge."""
 
-        end_time_mins = time_to_mins(stgs.GE.end_time)
-        start_time_mins = time_to_mins(stgs.GE.start_time)
-        batt_charge_mins = 60 * batt_max_charge / stgs.GE.charge_rate
-
-        # Delay charge start to allow for any partial discharge
-        charge_time_mins = batt_charge_mins * (tgt_soc - stgs.GE.batt_reserve) / 100
-        discharge_time_mins = batt_charge_mins * (self.soc - tgt_soc) / 100
-        start_time = time_to_hrs(max(start_time_mins + discharge_time_mins,
-            end_time_mins - charge_time_mins))
-
         self.set_inverter_register("77", tgt_soc)
-#       Comment out to see how battery discharges without adjusting start time
-#        self.set_inverter_register("64", start_time)
-#        self.set_inverter_register("71", tgt_soc)
 
     def restore_params(self):
         """Restore inverter parameters after overnight charge"""
@@ -253,7 +154,7 @@ class GivEnergyObj:
         tgt_soc = 100
         if gen_fcast.pv_est50_day[0] > 0:
             if month in stgs.GE.winter:
-                print("info; winter month, SoC set to 100%")
+                print("Info; winter month, SoC set to 100%")
             else:
 
                 #  Step through forecast generation and consumption for coming day to identify
@@ -266,7 +167,7 @@ class GivEnergyObj:
                 min_charge = batt_max_charge
 
                 print()
-                print("{:<20} {:>10} {:>10} {:>10}  {:>10} {:>10}".format("Info; SoC Calcs;",
+                print("{:>10} {:>10} {:>10}  {:>10} {:>10}".format(
                     "Hour", "Charge", "Cons", "Gen", "SoC"))
 
                 index = 0
@@ -289,7 +190,7 @@ class GivEnergyObj:
                         elif index > 4:  # Charging after overnight boost
                             max_charge = max(max_charge, batt_charge[index])
 
-                    print("{:<20} {:>10} {:>10} {:>10}  {:>10} {:>10}".format("Info; SoC Calc;",
+                    print("{:>10} {:>10} {:>10}  {:>10} {:>10}".format(
                         index, round(batt_charge[index], 2), round(total_load, 2),
                         round(est_gen, 2), int(100 * batt_charge[index] / batt_max_charge)))
 
@@ -300,38 +201,36 @@ class GivEnergyObj:
 
                 #  Reduce nightly charge to capture max export
                 if month in stgs.GE.shoulder:
-                    tgt_soc = max(stgs.GE.max_soc_target, 130 - min_charge_pcnt,
-                                  200 - max_charge_pcnt)
+                    tgt_soc = max(stgs.GE.max_soc_target, 100 - min_charge_pcnt, 200 - max_charge_pcnt)
                 else:
-                    tgt_soc = max(stgs.GE.min_soc_target, 130 - min_charge_pcnt,
-                                  200 - max_charge_pcnt)
+                    tgt_soc = max(stgs.GE.min_soc_target, 100 - min_charge_pcnt, 200 - max_charge_pcnt)
                 tgt_soc = int(min(max(tgt_soc, 0), 100))  # Limit range
 
                 print()
-                print("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("Info; SoC Calc Summary;",
+                print("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("SoC Calc Summary;",
                     "Max Charge", "Min Charge", "Max %", "Min %", "Target SoC"))
-                print("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("Info; SoC Calc Summary;",
+                print("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("SoC Calc Summary;",
                     round(max_charge, 2), round(min_charge, 2),
                     max_charge_pcnt, min_charge_pcnt, tgt_soc))
-                print("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("Info; SoC (Adjusted);",
+                print("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("SoC (Adjusted);",
                     round(max_charge, 2), round(min_charge, 2),
                     max_charge_pcnt - 100 + tgt_soc, min_charge_pcnt - 100 + tgt_soc, "\n"))
 
         else:
-            print("Info; Incomplete Solcast data, setting target SoC to 100%")
+            print("Incomplete Solcast data, setting target SoC to 100%")
 
-        print("Info; SoC Summary; ", LONG_TIME_NOW_VAR, "; Tom Fcast Gen (kWh); ",
+        print("SoC Summary; ", LONG_TIME_NOW_VAR, "; Tom Fcast Gen (kWh); ",
             gen_fcast.pv_est10_day[0], ";", gen_fcast.pv_est50_day[0], ";",
-            gen_fcast.pv_est90_day[0], "; SoC Target (%); ", tgt_soc,
-            "; Today Gen (kWh); ", round(self.pv_energy) / 1000, 2)
+            gen_fcast.pv_est90_day[0], "; SoC Target (%); ", tgt_soc)
+        print()
 
         if commit:
-            self.set_soc(tgt_soc, batt_max_charge)
+            self.set_soc(tgt_soc)
 
 # End of GivEnergyObj() class definition
 
 class SolcastObj:
-    """Stores daily Solcast data."""
+    """Stores and manipulates daily Solcast forecast."""
 
     def __init__(self):
         # Skeleton solcast summary array
@@ -344,7 +243,7 @@ class SolcastObj:
         self.pv_est90_hrly: [int] = [0] * 24
 
     def update(self):
-        """Updates forecast generation from Solcast."""
+        """Updates forecast generation from Solcast server."""
 
         def get_solcast(url) -> Tuple[bool, str]:
             """Download latest Solcast forecast."""
@@ -367,24 +266,30 @@ class SolcastObj:
         #  End of get_solcast()
 
         # Download latest data for each array, abort if unsuccessful
-        result, solcast_data_1 = get_solcast(stgs.Solcast.url_sw)
+
+        result, solcast_data_1 = get_solcast(stgs.Solcast.url_se)
         if not result:
             print("Error; Problem reading Solcast data, using previous values (if any)")
             return
 
-        result, solcast_data_2 = get_solcast(stgs.Solcast.url_se)
-        if not result:
-            print("Error; Problem reading Solcast data, using previous values (if any)")
-            return
+        if stgs.Solcast.url_sw != "":  # Two arrays are specified
+            result, solcast_data_2 = get_solcast(stgs.Solcast.url_sw)
+            if not result:
+                print("Error; Problem reading Solcast data, using previous values (if any)")
+                return
 
-        print("Info; Successful Solcast download.")
+        print("Successful Solcast download.")
 
         # Combine forecast for PV arrays & align data with day boundaries
         pv_est10 = [0] * 10080
         pv_est50 = [0] * 10080
         pv_est90 = [0] * 10080
 
-        forecast_lines = min(len(solcast_data_1['forecasts']), len(solcast_data_2['forecasts']))
+        if stgs.Solcast.url_sw != "":  # Two arrays are specified
+            forecast_lines = min(len(solcast_data_1['forecasts']), len(solcast_data_2['forecasts']))
+        else:
+            forecast_lines = len(solcast_data_1['forecasts'])
+
         interval = int(solcast_data_1['forecasts'][0]['period'][2:4])
         solcast_offset = (60 * int(solcast_data_1['forecasts'][0]['period_end'][11:13]) +
             int(solcast_data_1['forecasts'][0]['period_end'][14:16]) - interval - 60)
@@ -392,14 +297,17 @@ class SolcastObj:
         index = solcast_offset
         cntr = 0
         while index < forecast_lines * interval:
-            pv_est10[index] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate10'] * 1000) +
-                int(solcast_data_2['forecasts'][cntr]['pv_estimate10'] * 1000))
-
-            pv_est50[index] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate'] * 1000) +
-                int(solcast_data_2['forecasts'][cntr]['pv_estimate'] * 1000))
-
-            pv_est90[index] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate90'] * 1000) +
-                int(solcast_data_2['forecasts'][cntr]['pv_estimate90'] * 1000))
+            if stgs.Solcast.url_sw != "":  # Two arrays are specified
+                pv_est10[index] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate10'] * 1000) +
+                    int(solcast_data_2['forecasts'][cntr]['pv_estimate10'] * 1000))
+                pv_est50[index] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate'] * 1000) +
+                    int(solcast_data_2['forecasts'][cntr]['pv_estimate'] * 1000))
+                pv_est90[index] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate90'] * 1000) +
+                    int(solcast_data_2['forecasts'][cntr]['pv_estimate90'] * 1000))
+            else:
+                pv_est10[index] = int(solcast_data_1['forecasts'][cntr]['pv_estimate10'] * 1000)
+                pv_est50[index] = int(solcast_data_1['forecasts'][cntr]['pv_estimate'] * 1000)
+                pv_est90[index] = int(solcast_data_1['forecasts'][cntr]['pv_estimate90'] * 1000)
 
             if index > 1 and index % interval == 0:
                 cntr += 1
@@ -429,11 +337,11 @@ class SolcastObj:
             index += 1
 
         timestamp = time.strftime("%d-%m-%Y %H:%M:%S", time.localtime())
-        print("Info; PV Estimate 10% (hrly, 7 days) / kWh", ";", timestamp, ";",
+        print("PV Estimate 10% (hrly, 7 days) / kWh", ";", timestamp, ";",
             self.pv_est10_hrly[0:23], self.pv_est10_day[0:6])
-        print("Info; PV Estimate 50% (hrly, 7 days) / kWh", ";", timestamp, ";",
+        print("PV Estimate 50% (hrly, 7 days) / kWh", ";", timestamp, ";",
             self.pv_est50_hrly[0:23], self.pv_est50_day[0:6])
-        print("Info; PV Estimate 90% (hrly, 7 days) / kWh", ";", timestamp, ";",
+        print("PV Estimate 90% (hrly, 7 days) / kWh", ";", timestamp, ";",
             self.pv_est90_hrly[0:23], self.pv_est90_day[0:6])
 
 # End of SolcastObj() class definition
@@ -459,13 +367,12 @@ def time_to_hrs(time_in: int) -> str:
 if __name__ == '__main__':
 
     # Current time definitions
-    LOOP_COUNTER_VAR = 0
     LONG_TIME_NOW_VAR: str = time.strftime("%d-%m-%Y %H:%M:%S", time.localtime())
     TIME_NOW_VAR: str = LONG_TIME_NOW_VAR[11:]
     TIME_NOW_MINS_VAR: int = time_to_mins(TIME_NOW_VAR)
     MONTH_VAR = LONG_TIME_NOW_VAR[3:5]
 
-    print("Info; PALM... PV Automated Load Manager Version:", PALM_VERSION)
+    print("PALM... PV Automated Load Manager Version:", PALM_VERSION)
 
     # Parse any command-line arguments
     TEST_MODE: bool = False
@@ -474,10 +381,10 @@ if __name__ == '__main__':
         if str(sys.argv[1]) in ["-t", "--test"]:
             TEST_MODE = True
             DEBUG_MODE = True
-            print("Info; Running in test mode")
+            print("Running in test mode")
         elif str(sys.argv[1]) in ["-d", "--debug"]:
             DEBUG_MODE = True
-            print("Info; Running in debug mode")
+            print("Running in debug mode")
 
     # GivEnergy power object initialisation
     ge: GivEnergyObj = GivEnergyObj()
@@ -487,14 +394,17 @@ if __name__ == '__main__':
     solcast: SolcastObj = SolcastObj()
     solcast.update()
 
-    # compute & set SoC target
-    print("Info; 10% forecast...")
+    # Compute & set SoC target
+    print("10% forecast...")
     ge.compute_tgt_soc(solcast, 1, 0, 0, MONTH_VAR, False)
-    print("Info; 50% forecast...")
+    print("50% forecast...")
     ge.compute_tgt_soc(solcast, 0, 1, 0, MONTH_VAR, False)
-    print("Info; 90% forecast...")
+    print("90% forecast...")
     ge.compute_tgt_soc(solcast, 0, 0, 1, MONTH_VAR, False)
-    print("Info; 1:2:0 weighted forecast...")
+    
+    # Write final SoC target to GivEnergy register
+    # Change weighting in command according to desired risk/reward profile
+    print("1:2:0 weighted forecast...")
     ge.compute_tgt_soc(solcast, 1, 2, 0, MONTH_VAR, True)
 
 # End
