@@ -54,8 +54,9 @@ import settings as stgs
 # v0.8.2    21/May/22 Added exception catchers for suspect GE data
 # v0.8.3    31/May/22 Softened overnight SoC reduction for shoulder months
 # v0.8.3a   17/Jul/22 Fixed negative grid energy
+# v0.8.3b   16/Sep/22 Aligned to amended Solcast field length (out by 1), added try
 
-PALM_VERSION = "v0.8.3"
+PALM_VERSION = "v0.8.3b"
 
 #  Future improvements:
 #
@@ -150,7 +151,7 @@ class GivEnergyObj:
                         index += 1
                 self.pv_energy = int(self.meter_status[0]['today']['solar'] * 1000)
 
-                # Daily grid energy cannot be <0 for PVOutput.org (battery charge cannot be less than midnight value)
+                # Daily grid energy must be >=0 for PVOutput.org (battery charge >= midnight value)
                 self.grid_energy = max(int(self.meter_status[0]['today']['consumption'] * 1000), 0)
 
     def get_load_hist(self):
@@ -243,9 +244,6 @@ class GivEnergyObj:
             end_time_mins - charge_time_mins))
 
         self.set_inverter_register("77", tgt_soc)
-#       Comment out to see how battery discharges without adjusting start time
-#        self.set_inverter_register("64", start_time)
-#        self.set_inverter_register("71", tgt_soc)
 
     def restore_params(self):
         """Restore inverter parameters after overnight charge"""
@@ -312,10 +310,10 @@ class GivEnergyObj:
 
                 #  Reduce nightly charge to capture max export
                 if month in stgs.GE.shoulder:
-                    tgt_soc = max(stgs.GE.max_soc_target, 130 - min_charge_pcnt,
+                    tgt_soc = max(stgs.GE.max_soc_target, 100 - min_charge_pcnt,
                                   200 - max_charge_pcnt)
                 else:
-                    tgt_soc = max(stgs.GE.min_soc_target, 130 - min_charge_pcnt,
+                    tgt_soc = max(stgs.GE.min_soc_target, 100 - min_charge_pcnt,
                                   200 - max_charge_pcnt)
                 tgt_soc = int(min(max(tgt_soc, 0), 100))  # Limit range
 
@@ -338,8 +336,6 @@ class GivEnergyObj:
             "; Today Gen (kWh); ", round(self.pv_energy) / 1000, 2)
 
         if commit:
-#            if tgt_soc < self.soc:  # Avoid unnecessary discharge
-#                tgt_soc = max(tgt_soc, stgs.GE.max_soc_target)
             self.set_soc(tgt_soc, batt_max_charge)
 
 # End of GivEnergyObj() class definition
@@ -519,7 +515,8 @@ class SolcastObj:
         pv_est50 = [0] * 10080
         pv_est90 = [0] * 10080
 
-        forecast_lines = min(len(solcast_data_1['forecasts']), len(solcast_data_2['forecasts']))
+        # v0.8.3b bugfix: Number of lines reduced by 1 in Solcast data
+        forecast_lines = min(len(solcast_data_1['forecasts']), len(solcast_data_2['forecasts'])) - 1
         interval = int(solcast_data_1['forecasts'][0]['period'][2:4])
         solcast_offset = (60 * int(solcast_data_1['forecasts'][0]['period_end'][11:13]) +
             int(solcast_data_1['forecasts'][0]['period_end'][14:16]) - interval - 60)
@@ -907,31 +904,31 @@ if __name__ == '__main__':
 
         # Run activities, depending on specific intervals
 
-        # 5 minutes to midnight for next days forecasts
-        if TIME_NOW_MINS_VAR == 1435:
-            do_get_solcast = threading.Thread(target=solcast.update())
-            do_get_solcast.daemon = True
-            do_get_solcast.start()
+        # 5 minutes before off-peak start for next days forecast
+        if TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.start_time) - 5:
+            try:
+                solcast.update()
+            except:
+                print("Warning; Solcast download failure")
 
-        # 2 minutes to midnight for setting overnight battery charging target
-        if (DEBUG_MODE and LOOP_COUNTER_VAR == 2) or TIME_NOW_MINS_VAR == 1438:
+        # 2 minutes before off-peak start for setting overnight battery charging target
+        if (DEBUG_MODE and LOOP_COUNTER_VAR == 2) or \
+            TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.start_time) - 2:
             # compute & set SoC target
-            ge.get_load_hist()
-            print("Info; 10% forecast...")
-            ge.compute_tgt_soc(solcast, 1, 0, 0, False)
-            print("Info; 50% forecast...")
-            ge.compute_tgt_soc(solcast, 0, 1, 0, False)
-            print("Info; 90% forecast...")
-            ge.compute_tgt_soc(solcast, 0, 0, 1, False)
-            print("Info; 1:2:0 weighted forecast...")
-            ge.compute_tgt_soc(solcast, 1, 2, 0, True)
+            try:
+                ge.get_load_hist()
+                print("Info; 10% forecast...")
+                ge.compute_tgt_soc(solcast, 1, 0, 0, False)
+                print("Info; 50% forecast...")
+                ge.compute_tgt_soc(solcast, 0, 1, 0, False)
+                print("Info; 90% forecast...")
+                ge.compute_tgt_soc(solcast, 0, 0, 1, False)
+                print("Info; 1:2:0 weighted forecast...")
+                ge.compute_tgt_soc(solcast, 1, 2, 0, True)
+            except:
+                print("Warning; unable to set SoC")
             # Reset sunrise and sunset for next day
             env_obj.reset_sr_ss()
-
-        # Reset GivEnergy parameters at end of overnight charge
- #       if (DEBUG_MODE and LOOP_COUNTER_VAR == 5) or \
- #           TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.end_time):
- #           ge.restore_params()
 
         # Update carbon intensity every 15 mins
         if LOOP_COUNTER_VAR % 15 == 14:
