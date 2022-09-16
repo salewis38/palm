@@ -285,10 +285,11 @@ class SolcastObj:
         pv_est50 = [0] * 10080
         pv_est90 = [0] * 10080
 
+        # Bugfix: Number of lines reduced by 1 in Solcast data
         if stgs.Solcast.url_sw != "":  # Two arrays are specified
-            forecast_lines = min(len(solcast_data_1['forecasts']), len(solcast_data_2['forecasts']))
+            forecast_lines = min(len(solcast_data_1['forecasts']), len(solcast_data_2['forecasts'])) - 1
         else:
-            forecast_lines = len(solcast_data_1['forecasts'])
+            forecast_lines = len(solcast_data_1['forecasts']) - 1
 
         interval = int(solcast_data_1['forecasts'][0]['period'][2:4])
         solcast_offset = (60 * int(solcast_data_1['forecasts'][0]['period_end'][11:13]) +
