@@ -1,4 +1,5 @@
-# version 2022.08.05
+# version 2022.12.31
+# Added GE parameters for second daily charge and delayed winter discharge
 # settings.py file for use with palm.py and palm_soc.py
 #
 # IMPORTANT
@@ -51,6 +52,12 @@ class GE:
     # End time for Overnight Charge
     end_time = "04:30"
 
+    # Hold end time for 2 hours in winter to save battery for morning peak
+    end_time_winter = "06:30"    
+
+    # Winter afternoon boost start and end times
+    boost_start = "13:03"
+    boost_finish = "15:54"
 
 # SolCast PV forecast generator. Up to two arrays are supported with a forecast for each
 class Solcast:
