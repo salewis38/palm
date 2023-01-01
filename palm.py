@@ -8,13 +8,12 @@ import json
 from datetime import datetime, timedelta
 from typing import Tuple, List
 from urllib.parse import urlencode
-# from pprint import pprint
 import requests
 import settings as stgs
 
 # This software in any form is covered by the following Open Source BSD license:
 #
-# Copyright 2022, Steve Lewis
+# Copyright 2023, Steve Lewis
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -39,38 +38,42 @@ import settings as stgs
 ###########################################
 # This code provides several functions:
 # 1. Collection of generation/consumption data from GivEnergy API & upload to PVOutput
-# 2. Load management - lights, excess power dumping
+# 2. Load management - lights, excess power dumping, etc
 # 3. Setting overnight charge point, based on SolCast forecast & actual usage
-#
 ###########################################
 
-# Chamgelog:
+# Changelog:
 # v0.6.0    12/Feb/22 First cut at GivEnergy interface
-# v0.7.0/1  15/Apr/22 Reduced verbosity, revised forecasting
-# v0.7.2    05/May/22 Added actual load to SoC forecast
-# v0.7.3    05/May/22 Removed redundant Accumulator feature, charge limiting, p-printing
-# v0.8.0    08/May/22 Moved SoCcalc to GivEnergy, settings.py replaces palm_Config.json
-# v0.8.1    15/May/22 Rationalised sunset in env_obj, compensated for AC Charge discharge
-# v0.8.2    21/May/22 Added exception catchers for suspect GE data
-# v0.8.3    31/May/22 Softened overnight SoC reduction for shoulder months
-# v0.8.3a   17/Jul/22 Fixed negative grid energy
-# v0.8.3b   16/Sep/22 Aligned to amended Solcast field length (out by 1), added try
 # v0.8.4    12/Dec/22 Added winter afternoon boost functionality
 # v0.8.4a   15/Dec/22 Tidy up GE commands
 # v0.8.4b   24/Dec/22 Winter boost conditional on CO2 intensity
+# v0.8.4c   01/Jan/23 General tidy up
 
-PALM_VERSION = "v0.8.4b"
-
-#  Future improvements:
-#
+PALM_VERSION = "v0.8.4c"
 # -*- coding: utf-8 -*-
 
 class GivEnergyObj:
     """Class for GivEnergy inverter"""
 
     def __init__(self):
-        self.sys_status: List[str] = [""] * 5
-        self.meter_status: List[str] = [""] * 5
+        sys_item = {'time': '',
+                    'solar': {'power': 0, 'arrays':
+                                  [{'array': 1, 'voltage': 0, 'current': 0, 'power': 0},
+                                   {'array': 2, 'voltage': 0, 'current': 0, 'power': 0}]},
+                    'grid': {'voltage': 0, 'current': 0, 'power': 0, 'frequency': 0},
+                    'battery': {'percent': 0, 'power': 0, 'temperature': 0},
+                    'inverter': {'temperature': 0, 'power': 0, 'output_voltage': 0, \
+                        'output_frequency': 0, 'eps_power': 0},
+                    'consumption': 0}
+        self.sys_status: List[str] = [sys_item] * 5
+
+        meter_item = {'time': '',
+                      'today': {'solar': 0, 'grid': {'import': 0, 'export': 0},
+                                'battery': {'charge': 0, 'discharge': 0}, 'consumption': 0},
+                      'total': {'solar': 0, 'grid': {'import': 0, 'export': 0},
+                                'battery': {'charge': 0, 'discharge': 0}, 'consumption': 0}}
+        self.meter_status: List[str] = [meter_item] * 5
+
         self.read_time_mins: int = -100
         self.line_voltage: float = 0
         self.grid_power: int = 0
@@ -114,7 +117,7 @@ class GivEnergyObj:
                         except Exception:
                             print("Error reading GivEnergy system status ", TIME_NOW_VAR)
                             print(resp.content)
-                            self.meter_status[index] = self.meter_status[index + 1]
+                            self.sys_status[index] = self.sys_status[index + 1]
                 if LOOP_COUNTER_VAR == 0:  # Pack array on startup
                     index = 1
                     while index < 5:
@@ -152,6 +155,7 @@ class GivEnergyObj:
                     while index < 5:
                         self.meter_status[index] = self.meter_status[0]
                         index += 1
+
                 self.pv_energy = int(self.meter_status[0]['today']['solar'] * 1000)
 
                 # Daily grid energy must be >=0 for PVOutput.org (battery charge >= midnight value)
@@ -170,8 +174,8 @@ class GivEnergyObj:
             'Accept': 'application/json'
         }
         params = {
-        'page': '1',
-        'pageSize': '2000',
+            'page': '1',
+            'pageSize': '2000'
         }
 
         try:
@@ -199,7 +203,7 @@ class GivEnergyObj:
                 index += 12
             print("Info; Load Calc Summary:", current_energy, self.base_load)
 
-    def set_mode(self, cmd: str, arg: str):
+    def set_mode(self, cmd: str, *arg: str):
         """Configures inverter operating mode"""
 
         def set_inverter_register(register: str, value: str):
@@ -215,7 +219,7 @@ class GivEnergyObj:
                 'value': value
             }
             resp = ""
-            if not DEBUG_MODE:
+            if not TEST_MODE:
                 try:
                     resp = requests.request('POST', url, headers=headers, json=payload)
                 except requests.exceptions.RequestException as error:
@@ -228,15 +232,15 @@ class GivEnergyObj:
             set_inverter_register("64", stgs.GE.start_time)
             set_inverter_register("65", stgs.GE.end_time)
 
+        elif cmd == "set_soc_winter":  # Restore default overnight charge params
+            set_inverter_register("77", "100")
+            set_inverter_register("64", stgs.GE.start_time)
+            set_inverter_register("65", stgs.GE.end_time_winter)
+
         elif cmd == "charge_now":
             set_inverter_register("77", "100")
             set_inverter_register("64", "00:30")
             set_inverter_register("65", "23:59")
-
-        elif cmd == "set_winter_charge":  # Restore default overnight charge params
-            set_inverter_register("77", "100")
-            set_inverter_register("64", stgs.GE.start_time)
-            set_inverter_register("65", stgs.GE.end_time_winter)
 
         elif cmd == "pause":
             set_inverter_register("72", "0")
@@ -254,8 +258,8 @@ class GivEnergyObj:
 
         batt_max_charge: float = stgs.GE.batt_max_charge
 
-        weight = min(max(weight,10),90)  # Clamp range
-        wgt_10 = max(0, 50 - weight)
+        weight = min(max(weight,10),90)  # Range check
+        wgt_10 = max(0, 50 - weight)  # Triangular approximation to Solcast normal distrbution
         if weight > 50:
             wgt_50 = 90 - weight
         else:
@@ -266,7 +270,7 @@ class GivEnergyObj:
         if gen_fcast.pv_est50_day[0] > 0:
             if MONTH_VAR in stgs.GE.winter and commit:  # No need for sums...
                 print("info; winter month, SoC set to 100%")
-                self.set_mode("set_winter_charge", "")
+                self.set_mode("set_soc_winter")
                 return
 
             #  Step through forecast generation and consumption for coming day to identify
@@ -582,7 +586,6 @@ class EnvObj:
         self.weather_symbol: str = "0"
         self.current_weather: [str] = []
         self.sunshine: int = 0
-
         self.sr_time: str = "06:00"
         self.virt_sr_time: str = "09:00"
         self.ss_time: str = "21:00"
@@ -607,7 +610,6 @@ class EnvObj:
 
         if len(req.content) < 50:
             print("Warning: Carbon intensity data missing/short")
-            #print(req.content)
             return
 
         co2_intens_raw: int = []
@@ -618,10 +620,14 @@ class EnvObj:
         co2_intens_near = 0
         co2_intens_far = 0
         index = 0
-        while index < 5:
-            co2_intens_near += int(co2_intens_raw[index]['intensity']['forecast']) / 5
-            co2_intens_far += int(co2_intens_raw[index + 6]['intensity']['forecast']) / 5
-            index += 1
+        try:
+            while index < 5:
+                co2_intens_near += int(co2_intens_raw[index]['intensity']['forecast']) / 5
+                co2_intens_far += int(co2_intens_raw[index + 6]['intensity']['forecast']) / 5
+                index += 1
+
+        except Exception as error:
+            print("Warning: Problem calculating CO2 intensity trend:", error)
 
         self.co2_high = co2_intens_far > 1.3 * co2_intens_near or \
             co2_intens_far > stgs.CarbonIntensity.Threshold and \
@@ -658,7 +664,6 @@ class EnvObj:
                 self.virt_ss_time = env_obj.ss_time
                 print('Info; VSunrise/set (False alarm) VSR:',
                       env_obj.virt_sr_time, "VSS:", env_obj.virt_ss_time)
-
         return new_virt_sr_ss
 
     def reset_sr_ss(self):
@@ -688,8 +693,8 @@ class EnvObj:
             return
 
         current_weather = json.loads(req.content.decode('utf-8'))
-        #if DEBUG_MODE:
-            #pprint(current_weather)
+        if DEBUG_MODE:
+            print(current_weather)
         self.current_weather = current_weather
 
         self.temp_deg_c = round(current_weather['current']['temp'] - 273, 1)
@@ -698,7 +703,7 @@ class EnvObj:
 # End of EnvObj() class definition
 
 def time_to_mins(time_in_hrs: str) -> int:
-    """Convert times from HH:MM format to mins since midnight."""
+    """Convert times from HH:MM format to mins after midnight."""
 
     time_in_mins = 60 * int(time_in_hrs[0:2]) + int(time_in_hrs[3:5])
     return time_in_mins
@@ -706,7 +711,7 @@ def time_to_mins(time_in_hrs: str) -> int:
 #  End of time_to_mins()
 
 def time_to_hrs(time_in: int) -> str:
-    """Convert times from mins since midnight format to HH:MM."""
+    """Convert times from mins after midnight format to HH:MM."""
 
     hours = int(time_in // 60)
     mins = int(time_in - hours * 60)
@@ -764,7 +769,6 @@ def put_pv_output():
     total_cons = ge.consumption - ge.batt_power
     load_pwr = total_cons if total_cons > 0 else 0
 
-
     payload = {
         "t"   : post_time,
         "key" : key,
@@ -790,7 +794,7 @@ def put_pv_output():
     payload.update(part_payload)  # Concatenate the data, don't escape ":"
     payload = urlencode(payload, doseq=True, quote_via=lambda x,y,z,w: x)
 
-    time.sleep(2)  # PVOutput has a 1 second rate limit. Avoid clash with any reads
+    time.sleep(2)  # PVOutput has a 1 second rate limit. Avoid any clashes
 
     if not TEST_MODE and stgs.PVOutput.enable:
         try:
@@ -851,13 +855,7 @@ def balance_loads():
 
 if __name__ == '__main__':
 
-    # Current time definitions
-    LONG_TIME_NOW_VAR: str = time.strftime("%d-%m-%Y %H:%M:%S", time.localtime())
-    TIME_NOW_VAR: str = LONG_TIME_NOW_VAR[11:]
-    TIME_NOW_MINS_VAR: int = time_to_mins(TIME_NOW_VAR)
-
     print("Info; PALM... PV Automated Load Manager Version:", PALM_VERSION)
-    print("Info; Initialising at", LONG_TIME_NOW_VAR)
 
     # Parse any command-line arguments
     TEST_MODE: bool = False
@@ -866,129 +864,130 @@ if __name__ == '__main__':
         if str(sys.argv[1]) in ["-t", "--test"]:
             TEST_MODE = True
             DEBUG_MODE = True
-            print("Info; Running in test mode")
+            print("Info; Running in test mode... 5 sec loop time, no external server writes")
         elif str(sys.argv[1]) in ["-d", "--debug"]:
             DEBUG_MODE = True
-            print("Info; Running in debug mode")
-
-    # GivEnergy power object initialisation
-    ge: GivEnergyObj = GivEnergyObj()
-    ge.get_load_hist()
-    ge.set_mode("set_soc","100")
-
-    # Solcast PV prediction object initialisation
-    solcast: SolcastObj = SolcastObj()
-    solcast.update()
-
-    # Misc environmental data: weather, CO2, etc
-    CO2_USAGE_VAR: int = 200
-    env_obj: EnvObj = EnvObj()
-    env_obj.update_weather_curr()
-    env_obj.update_co2()
-
-    # Create an object for each load
-    load_obj: List[LoadObj] = []
-    load_payload: List[str] = []
-    NUM_LOADS: int = len(stgs.LOAD_CONFIG['LoadPriorityOrder'])
-    for LOAD_INDEX_VAR in range(NUM_LOADS):
-        load_payload = stgs.LOAD_CONFIG[stgs.LOAD_CONFIG['LoadPriorityOrder'][LOAD_INDEX_VAR]]
-        load_obj.append(LoadObj(LOAD_INDEX_VAR, load_payload))
+            print("Info; Running in debug mode, extra verbose")
 
     print("Info; Entering main loop...")
     sys.stdout.flush()
 
-    LOOP_COUNTER_VAR: int = 0  # 1 minute minor frame
-    PVO_TSTAMP_VAR: int = 0  # Records when PV data last writtem
+    LOOP_COUNTER_VAR: int = 0  # 1 minute minor frame. "0" = initialise
+    PVO_TSTAMP_VAR: int = 0  # Records value of LOOP_COUNTER_VAR when PV data last written
 
     while True:  # Main Loop
+        # Current time definitions
+        LONG_TIME_NOW_VAR: str = time.strftime("%d-%m-%Y %H:%M:%S", time.localtime())
+        MONTH_VAR: str = LONG_TIME_NOW_VAR[3:5]
+        TIME_NOW_VAR: str = LONG_TIME_NOW_VAR[11:]
+        TIME_NOW_MINS_VAR: int = time_to_mins(TIME_NOW_VAR)
 
-        # Sync to minute rollover on system clock
-        CURRENT_MINUTE = int(time.strftime("%M", time.localtime()))
+        if LOOP_COUNTER_VAR == 0:  # Initialise
+            # GivEnergy power object
+            ge: GivEnergyObj = GivEnergyObj()
+            ge.get_load_hist()
+            if MONTH_VAR in stgs.GE.winter:
+                ge.set_mode("set_soc_winter")
+            else:
+                ge.set_mode("set_soc","100")
 
-        if not DEBUG_MODE:
-            while int(time.strftime("%M", time.localtime())) == CURRENT_MINUTE:
-                time.sleep(1)
+            # Solcast PV prediction object
+            solcast: SolcastObj = SolcastObj()
+            solcast.update()
+
+            # Misc environmental data: weather, CO2, etc
+            CO2_USAGE_VAR: int = 200
+            env_obj: EnvObj = EnvObj()
+            env_obj.update_weather_curr()
+            env_obj.update_co2()
+
+            # Create an object for each load
+            load_obj: List[LoadObj] = []
+            load_payload: List[str] = []
+            NUM_LOADS: int = len(stgs.LOAD_CONFIG['LoadPriorityOrder'])
+            for LOAD_INDEX_VAR in range(NUM_LOADS):
+                load_payload = stgs.LOAD_CONFIG[stgs.LOAD_CONFIG \
+                    ['LoadPriorityOrder'][LOAD_INDEX_VAR]]
+                load_obj.append(LoadObj(LOAD_INDEX_VAR, load_payload))
+
         else:
-            if LOOP_COUNTER_VAR == 0:
-                print("Debug mode... running with 5 second loop time")
-            time.sleep(5)
+            # Schedule activities at specific intervals
 
-        sys.stdout.flush()
+            # 5 minutes before off-peak start for next day's forecast
+            if TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.start_time) - 5:
+                try:
+                    solcast.update()
+                except Exception:
+                    print("Warning; Solcast download failure")
 
-        # Set parameters for this frame
-        LONG_TIME_NOW_VAR = time.strftime("%d-%m-%Y %H:%M:%S", time.localtime())
-        TIME_NOW_VAR = LONG_TIME_NOW_VAR[11:]
-        MONTH_VAR = LONG_TIME_NOW_VAR[3:5]
-        TIME_NOW_MINS_VAR = time_to_mins(TIME_NOW_VAR)
+            # 2 minutes before off-peak start for setting overnight battery charging target
+            if (TEST_MODE and LOOP_COUNTER_VAR == 2) or \
+                TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.start_time) - 2:
+                # compute & set SoC target
+                try:
+                    ge.get_load_hist()
+                    print("Info; 10% forecast...")
+                    ge.compute_tgt_soc(solcast, 10, False)
+                    print("Info; 50% forecast...")
+                    ge.compute_tgt_soc(solcast, 50, False)
+                    print("Info; 90% forecast...")
+                    ge.compute_tgt_soc(solcast, 90, False)
+                    print("Info; 35% weighted forecast...")
+                    ge.compute_tgt_soc(solcast, 35, True)
+                except Exception:
+                    print("Warning; unable to set SoC")
+                # Reset sunrise and sunset for next day
+                env_obj.reset_sr_ss()
 
-        # Run activities, depending on specific intervals
+            # Afternoon battery boost in winter months to load shift from peak period
+            if MONTH_VAR in stgs.GE.winter:
+                if TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.boost_start) and env_obj.co2_high:
+                    print("info; Enabling afternoon battery boost")
+                    ge.set_mode("charge_now")
+                if TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.boost_finish):
+                    ge.set_mode("set_soc_winter")
 
-        # 5 minutes before off-peak start for next days forecast
-        if TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.start_time) - 5:
-            try:
-                solcast.update()
-            except Exception:
-                print("Warning; Solcast download failure")
+            # Update carbon intensity every 15 mins as background task
+            if LOOP_COUNTER_VAR % 15 == 14:
+                do_get_carbon_intensity = threading.Thread(target=env_obj.update_co2())
+                do_get_carbon_intensity.daemon = True
+                do_get_carbon_intensity.start()
 
-        # 2 minutes before off-peak start for setting overnight battery charging target
-        if (DEBUG_MODE and LOOP_COUNTER_VAR == 2) or \
-            TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.start_time) - 2:
-            # compute & set SoC target
-            try:
-                ge.get_load_hist()
-                print("Info; 10% forecast...")
-                ge.compute_tgt_soc(solcast, 10, False)
-                print("Info; 50% forecast...")
-                ge.compute_tgt_soc(solcast, 50, False)
-                print("Info; 90% forecast...")
-                ge.compute_tgt_soc(solcast, 90, False)
-                print("Info; 35% weighted forecast...")
-                ge.compute_tgt_soc(solcast, 35, True)
-            except Exception:
-                print("Warning; unable to set SoC")
-            # Reset sunrise and sunset for next day
-            env_obj.reset_sr_ss()
+            # Update weather every 15 mins as background task
+            if LOOP_COUNTER_VAR % 15 == 14:
+                do_get_weather = threading.Thread(target=env_obj.update_weather_curr())
+                do_get_weather.daemon = True
+                do_get_weather.start()
 
-        # Afternoon battery boost in winter months to load shift from peak period
-        if MONTH_VAR in stgs.GE.winter:
-            if TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.boost_start) and env_obj.co2_high:
-                print("info; Enabling afternoon battery boost")
-                ge.set_mode("charge_now", "")
-            if TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.boost_finish):
-                ge.set_mode("set_winter_charge", "")
+            #  Refresh utilisation data from GivEnergy server. Check every minute
+            ge.get_latest_data()
+            CO2_USAGE_VAR = int(env_obj.co2_intensity * ge.grid_power / 1000)
 
-        # Update carbon intensity every 15 mins
-        if LOOP_COUNTER_VAR % 15 == 14:
-            do_get_carbon_intensity = threading.Thread(target=env_obj.update_co2())
-            do_get_carbon_intensity.daemon = True
-            do_get_carbon_intensity.start()
+            #  Turn loads on or off. Check every minute
+            do_balance_loads = threading.Thread(target=balance_loads())
+            do_balance_loads.daemon = True
+            do_balance_loads.start()
 
-        # Update weather every 15 mins
-        if LOOP_COUNTER_VAR % 15 == 14:
-            do_get_weather = threading.Thread(target=env_obj.update_weather_curr())
-            do_get_weather.daemon = True
-            do_get_weather.start()
-
-        #  Refresh utilisation data from GivEnergy server. Check every minute
-        ge.get_latest_data()
-        CO2_USAGE_VAR = int(env_obj.co2_intensity * ge.grid_power / 1000)
-
-        #  Turn loads on or off. Check every minute
-        do_balance_loads = threading.Thread(target=balance_loads())
-        do_balance_loads.daemon = True
-        do_balance_loads.start()
-
-        # Publish data to PVOutput.org every 5 minutes (or 5 cycles as a catch-all)
-        if DEBUG_MODE or TIME_NOW_MINS_VAR % 5 == 3 or LOOP_COUNTER_VAR > PVO_TSTAMP_VAR + 4:
-            PVO_TSTAMP_VAR = LOOP_COUNTER_VAR
-            do_put_pv_output = threading.Thread(target=put_pv_output)
-            do_put_pv_output.daemon = True
-            do_put_pv_output.start()
+            # Publish data to PVOutput.org every 5 minutes (or 5 cycles as a catch-all)
+            if TEST_MODE or TIME_NOW_MINS_VAR % 5 == 3 or LOOP_COUNTER_VAR > PVO_TSTAMP_VAR + 4:
+                PVO_TSTAMP_VAR = LOOP_COUNTER_VAR
+                do_put_pv_output = threading.Thread(target=put_pv_output)
+                do_put_pv_output.daemon = True
+                do_put_pv_output.start()
 
         LOOP_COUNTER_VAR += 1
+
         if TIME_NOW_MINS_VAR == 0:  # Reset frame counter every 24 hours
             ge.pv_energy = 0  # Avoids carry-over issues with PVOutput
             ge.grid_energy = 0
             LOOP_COUNTER_VAR = 1
 
+        if TEST_MODE:  # Wait 5 seconds
+            time.sleep(5)
+        else:  # Sync to minute rollover on system clock
+            CURRENT_MINUTE = int(time.strftime("%M", time.localtime()))
+            while int(time.strftime("%M", time.localtime())) == CURRENT_MINUTE:
+                time.sleep(10)
+
+        sys.stdout.flush()
 # End of main

@@ -11,7 +11,7 @@ import settings as stgs
 
 # This software in any form is covered by the following Open Source BSD license:
 #
-# Copyright 2022, Steve Lewis
+# Copyright 2023, Steve Lewis
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -38,25 +38,37 @@ import settings as stgs
 #
 ###########################################
 
-# Chamgelog:
-
+# Changelog:
 # v0.8.3aSoC   28/Jul/22 Branch from palm - SoC only
 # v0.8.3bSoC   05/Aug/22 Improved commenting, removed legacy code
 # v0.8.4bSoC   31/Dec/22 Re-merge with Palm 0.8.4b, add example for second charge period
+# v0.8.4cSoC   01/Jan/23 General tidy up
 
-
-PALM_VERSION = "v0.8.4bSoC"
-
-#  Future improvements:
-#
+PALM_VERSION = "v0.8.4cSoC"
 # -*- coding: utf-8 -*-
 
 class GivEnergyObj:
     """Class for GivEnergy inverter"""
 
     def __init__(self):
-        self.sys_status: List[str] = [""] * 5
-        self.meter_status: List[str] = [""] * 5
+        sys_item = {'time': '',
+                    'solar': {'power': 0, 'arrays':
+                                  [{'array': 1, 'voltage': 0, 'current': 0, 'power': 0},
+                                   {'array': 2, 'voltage': 0, 'current': 0, 'power': 0}]},
+                    'grid': {'voltage': 0, 'current': 0, 'power': 0, 'frequency': 0},
+                    'battery': {'percent': 0, 'power': 0, 'temperature': 0},
+                    'inverter': {'temperature': 0, 'power': 0, 'output_voltage': 0, \
+                        'output_frequency': 0, 'eps_power': 0},
+                    'consumption': 0}
+        self.sys_status: List[str] = [sys_item] * 5
+
+        meter_item = {'time': '',
+                      'today': {'solar': 0, 'grid': {'import': 0, 'export': 0},
+                                'battery': {'charge': 0, 'discharge': 0}, 'consumption': 0},
+                      'total': {'solar': 0, 'grid': {'import': 0, 'export': 0},
+                                'battery': {'charge': 0, 'discharge': 0}, 'consumption': 0}}
+        self.meter_status: List[str] = [meter_item] * 5
+
         self.read_time_mins: int = -100
         self.line_voltage: float = 0
         self.grid_power: int = 0
@@ -156,8 +168,8 @@ class GivEnergyObj:
             'Accept': 'application/json'
         }
         params = {
-        'page': '1',
-        'pageSize': '2000',
+            'page': '1',
+            'pageSize': '2000'
         }
 
         try:
@@ -185,7 +197,7 @@ class GivEnergyObj:
                 index += 12
             print("Info; Load Calc Summary:", current_energy, self.base_load)
 
-    def set_mode(self, cmd: str, arg: str):
+    def set_mode(self, cmd: str, *arg: str):
         """Configures inverter operating mode"""
 
         def set_inverter_register(register: str, value: str):
@@ -201,31 +213,28 @@ class GivEnergyObj:
                 'value': value
             }
             resp = ""
-            if TEST_MODE:
-                print("Info; TEST MODE: Register: ", register, "Value: ", value, "")
-            else:
+            if not TEST_MODE:
                 try:
                     resp = requests.request('POST', url, headers=headers, json=payload)
                 except requests.exceptions.RequestException as error:
                     print(error)
                     return
-                print("Info; Setting Register", register, "to ", value, "Response:", resp)
+            print("Info; Setting Register", register, "to ", value, "Response:", resp)
 
         if cmd == "set_soc":  # Sets target SoC to value
-            set_inverter_register(ll
-                                  "77", arg)
+            set_inverter_register("77", arg)
             set_inverter_register("64", stgs.GE.start_time)
             set_inverter_register("65", stgs.GE.end_time)
+
+        elif cmd == "set_soc_winter":  # Restore default overnight charge params
+            set_inverter_register("77", "100")
+            set_inverter_register("64", stgs.GE.start_time)
+            set_inverter_register("65", stgs.GE.end_time_winter)
 
         elif cmd == "charge_now":
             set_inverter_register("77", "100")
             set_inverter_register("64", "00:30")
             set_inverter_register("65", "23:59")
-
-        elif cmd == "set_winter_charge":  # Restore default overnight charge params
-            set_inverter_register("77", "100")
-            set_inverter_register("64", stgs.GE.start_time)
-            set_inverter_register("65", stgs.GE.end_time_winter)
 
         elif cmd == "pause":
             set_inverter_register("72", "0")
@@ -243,8 +252,8 @@ class GivEnergyObj:
 
         batt_max_charge: float = stgs.GE.batt_max_charge
 
-        weight = min(max(weight,10),90)  # Clamp range
-        wgt_10 = max(0, 50 - weight)
+        weight = min(max(weight,10),90)  # Range check
+        wgt_10 = max(0, 50 - weight)  # Triangular approximation to Solcast normal distrbution
         if weight > 50:
             wgt_50 = 90 - weight
         else:
@@ -255,7 +264,7 @@ class GivEnergyObj:
         if gen_fcast.pv_est50_day[0] > 0:
             if MONTH_VAR in stgs.GE.winter and commit:  # No need for sums...
                 print("info; winter month, SoC set to 100%")
-                self.set_mode("set_winter_charge", "")
+                self.set_mode("set_soc_winter")
                 return
 
             #  Step through forecast generation and consumption for coming day to identify
@@ -448,7 +457,7 @@ class SolcastObj:
 # End of SolcastObj() class definition
 
 def time_to_mins(time_in_hrs: str) -> int:
-    """Convert times from HH:MM format to mins since midnight."""
+    """Convert times from HH:MM format to mins after midnight."""
 
     time_in_mins = 60 * int(time_in_hrs[0:2]) + int(time_in_hrs[3:5])
     return time_in_mins
@@ -456,7 +465,7 @@ def time_to_mins(time_in_hrs: str) -> int:
 #  End of time_to_mins()
 
 def time_to_hrs(time_in: int) -> str:
-    """Convert times from mins since midnight format to HH:MM."""
+    """Convert times from mins after midnight format to HH:MM."""
 
     hours = int(time_in // 60)
     mins = int(time_in - hours * 60)
@@ -478,39 +487,32 @@ if __name__ == '__main__':
         if str(sys.argv[1]) in ["-t", "--test"]:
             TEST_MODE = True
             DEBUG_MODE = True
-            print("Running in test mode")
+            print("Info; Running in test mode... 5 sec loop time, no external server writes")
         elif str(sys.argv[1]) in ["-d", "--debug"]:
             DEBUG_MODE = True
-            print("Running in debug mode")
+            print("Info; Running in debug mode, extra verbose")
 
+    print("Info; Entering main loop...")
+    sys.stdout.flush()
 
     while True:  # Main Loop
         # Current time definitions
         LONG_TIME_NOW_VAR: str = time.strftime("%d-%m-%Y %H:%M:%S", time.localtime())
+        MONTH_VAR: str = LONG_TIME_NOW_VAR[3:5]
         TIME_NOW_VAR: str = LONG_TIME_NOW_VAR[11:]
         TIME_NOW_MINS_VAR: int = time_to_mins(TIME_NOW_VAR)
-        MONTH_VAR = LONG_TIME_NOW_VAR[3:5]
 
-        if LOOP_COUNTER_VAR == 0:
+        if LOOP_COUNTER_VAR == 0:  # Initialise
             # GivEnergy power object initialisation
             ge: GivEnergyObj = GivEnergyObj()
             ge.get_load_hist()
             # Solcast PV prediction object initialisation
             solcast: SolcastObj = SolcastObj()
             solcast.update()
-            if DEBUG_MODE:
-                print("Debug mode... running with 5 second loop time")
-        else:
-            # Sync to minute rollover on system clock
-            CURRENT_MINUTE = int(time.strftime("%M", time.localtime()))
-            if DEBUG_MODE:
-                time.sleep(5)
-            else:
-                while int(time.strftime("%M", time.localtime())) == CURRENT_MINUTE:
-                    time.sleep(1)
 
-            # 5 minutes before off-peak start for next days forecast
-            if (DEBUG_MODE and LOOP_COUNTER_VAR == 0) or \
+        else:
+            # 5 minutes before off-peak start for next day's forecast
+            if (TEST_MODE and LOOP_COUNTER_VAR == 0) or \
                 TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.start_time) - 5:
                 try:
                     solcast.update()
@@ -518,7 +520,7 @@ if __name__ == '__main__':
                     print("Warning; Solcast download failure")
 
             # 2 minutes before off-peak start for setting overnight battery charging target
-            if (DEBUG_MODE and LOOP_COUNTER_VAR == 2) or \
+            if (TEST_MODE and LOOP_COUNTER_VAR == 2) or \
                 TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.start_time) - 2:
                 # compute & set SoC target
                 try:
@@ -547,10 +549,18 @@ if __name__ == '__main__':
                     ge.set_mode("set_winter_charge", "")
 
         LOOP_COUNTER_VAR += 1
+
         if TIME_NOW_MINS_VAR == 0:  # Reset frame counter every 24 hours
             ge.pv_energy = 0  # Avoids carry-over issues with PVOutput
             ge.grid_energy = 0
             LOOP_COUNTER_VAR = 1
 
+        if TEST_MODE:  # Wait 5 seconds
+            time.sleep(5)
+        else:  # Sync to minute rollover on system clock
+            CURRENT_MINUTE = int(time.strftime("%M", time.localtime()))
+            while int(time.strftime("%M", time.localtime())) == CURRENT_MINUTE:
+                time.sleep(10)
+
         sys.stdout.flush()
-# End
+# End of main
