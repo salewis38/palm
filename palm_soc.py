@@ -43,8 +43,9 @@ import settings as stgs
 # v0.8.3bSoC   05/Aug/22 Improved commenting, removed legacy code
 # v0.8.4bSoC   31/Dec/22 Re-merge with Palm 0.8.4b, add example for second charge period
 # v0.8.4cSoC   01/Jan/23 General tidy up
+# v0.8.4dSoC   09/Jan/23 Updated GivEnergyObj to download & validate inverter commands
 
-PALM_VERSION = "v0.8.4cSoC"
+PALM_VERSION = "v0.8.4dSoC"
 # -*- coding: utf-8 -*-
 
 class GivEnergyObj:
@@ -80,6 +81,32 @@ class GivEnergyObj:
         self.soc: int = 0
         self.base_load = stgs.GE.base_load
 
+        #  Download commands which are alid for inverter
+        url = stgs.GE.url + "settings"
+        key = "Bearer " + stgs.GE.key
+
+        payload = {}
+        headers = {
+                'Authorization': key,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+                }
+
+        try:
+            response = requests.request('GET', url, headers=headers, json=payload)
+        except requests.exceptions.RequestException as error:
+            print(error)
+            return
+
+        self.cmd_list = json.loads(response.content.decode('utf-8'))['data']
+
+        if DEBUG_MODE:
+            print("Inverter command list donwloaded")
+            print("Valid commands:")
+            for line in self.cmd_list:
+                print(line['id'], " - ", line['name'])
+            print("")
+
     def get_latest_data(self):
         """Download latest data from GivEnergy."""
 
@@ -112,7 +139,7 @@ class GivEnergyObj:
                         except Exception:
                             print("Error reading GivEnergy system status ", TIME_NOW_VAR)
                             print(resp.content)
-                            self.meter_status[index] = self.meter_status[index + 1]
+                            self.sys_status[index] = self.sys_status[index + 1]
                 if LOOP_COUNTER_VAR == 0:  # Pack array on startup
                     index = 1
                     while index < 5:
@@ -150,6 +177,7 @@ class GivEnergyObj:
                     while index < 5:
                         self.meter_status[index] = self.meter_status[0]
                         index += 1
+
                 self.pv_energy = int(self.meter_status[0]['today']['solar'] * 1000)
 
                 # Daily grid energy must be >=0 for PVOutput.org (battery charge >= midnight value)
@@ -202,24 +230,36 @@ class GivEnergyObj:
 
         def set_inverter_register(register: str, value: str):
             """Exactly as it says"""
-            url = stgs.GE.url + "settings/" + register + "/write"
-            key = stgs.GE.key
-            headers = {
-                'Authorization': 'Bearer  ' + key,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            }
-            payload = {
-                'value': value
-            }
-            resp = ""
-            if not TEST_MODE:
-                try:
-                    resp = requests.request('POST', url, headers=headers, json=payload)
-                except requests.exceptions.RequestException as error:
-                    print(error)
-                    return
-            print("Info; Setting Register", register, "to ", value, "Response:", resp)
+
+            result = False
+            for line in self.cmd_list:
+                if line['id'] == int(register):
+                    cmd_name = line['name']
+                    result = True
+                    break
+
+            if result:
+                url = stgs.GE.url + "settings/" + register + "/write"
+                key = stgs.GE.key
+                headers = {
+                    'Authorization': 'Bearer  ' + key,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                }
+                payload = {
+                    'value': value
+                }
+                resp = ""
+                if not TEST_MODE:
+                    try:
+                        resp = requests.request('POST', url, headers=headers, json=payload)
+                    except requests.exceptions.RequestException as error:
+                        print(error)
+                        return
+                print("Info; Setting Register ", register, " (", cmd_name, ") to ", value, ", \
+                      Response:", resp, sep='')
+            else:
+                print("Error: write to invalid inverter register: ", register)
 
         if cmd == "set_soc":  # Sets target SoC to value
             set_inverter_register("77", arg)
@@ -479,6 +519,9 @@ if __name__ == '__main__':
     LOOP_COUNTER_VAR: int = 0
 
     print("PALM... PV Automated Load Manager Version:", PALM_VERSION)
+    print("Command line options (only one can be used):")
+    print("-t | --test  | test mode (12x speed, no external server writes)")
+    print("-d | --debug | debug mode, extra verbose")
 
     # Parse any command-line arguments
     TEST_MODE: bool = False
@@ -487,7 +530,7 @@ if __name__ == '__main__':
         if str(sys.argv[1]) in ["-t", "--test"]:
             TEST_MODE = True
             DEBUG_MODE = True
-            print("Info; Running in test mode... 5 sec loop time, no external server writes")
+            print("Info; Running in test mode... 12x speed, no external server writes")
         elif str(sys.argv[1]) in ["-d", "--debug"]:
             DEBUG_MODE = True
             print("Info; Running in debug mode, extra verbose")

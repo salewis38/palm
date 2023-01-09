@@ -48,8 +48,9 @@ import settings as stgs
 # v0.8.4a   15/Dec/22 Tidy up GE commands
 # v0.8.4b   24/Dec/22 Winter boost conditional on CO2 intensity
 # v0.8.4c   01/Jan/23 General tidy up
+# v0.8.4d   09/Jan/23 Updated GivEnergyObj to download & validate inverter commands
 
-PALM_VERSION = "v0.8.4c"
+PALM_VERSION = "v0.8.4d"
 # -*- coding: utf-8 -*-
 
 class GivEnergyObj:
@@ -84,6 +85,32 @@ class GivEnergyObj:
         self.consumption: int = 0
         self.soc: int = 0
         self.base_load = stgs.GE.base_load
+
+        #  Download commands which are alid for inverter
+        url = stgs.GE.url + "settings"
+        key = "Bearer " + stgs.GE.key
+
+        payload = {}
+        headers = {
+                'Authorization': key,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+                }
+
+        try:
+            response = requests.request('GET', url, headers=headers, json=payload)
+        except requests.exceptions.RequestException as error:
+            print(error)
+            return
+
+        self.cmd_list = json.loads(response.content.decode('utf-8'))['data']
+
+        if DEBUG_MODE:
+            print("Inverter command list donwloaded")
+            print("Valid commands:")
+            for line in self.cmd_list:
+                print(line['id'], " - ", line['name'])
+            print("")
 
     def get_latest_data(self):
         """Download latest data from GivEnergy."""
@@ -208,24 +235,36 @@ class GivEnergyObj:
 
         def set_inverter_register(register: str, value: str):
             """Exactly as it says"""
-            url = stgs.GE.url + "settings/" + register + "/write"
-            key = stgs.GE.key
-            headers = {
-                'Authorization': 'Bearer  ' + key,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            }
-            payload = {
-                'value': value
-            }
-            resp = ""
-            if not TEST_MODE:
-                try:
-                    resp = requests.request('POST', url, headers=headers, json=payload)
-                except requests.exceptions.RequestException as error:
-                    print(error)
-                    return
-            print("Info; Setting Register", register, "to ", value, "Response:", resp)
+
+            result = False
+            for line in self.cmd_list:
+                if line['id'] == int(register):
+                    cmd_name = line['name']
+                    result = True
+                    break
+
+            if result:
+                url = stgs.GE.url + "settings/" + register + "/write"
+                key = stgs.GE.key
+                headers = {
+                    'Authorization': 'Bearer  ' + key,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                }
+                payload = {
+                    'value': value
+                }
+                resp = ""
+                if not TEST_MODE:
+                    try:
+                        resp = requests.request('POST', url, headers=headers, json=payload)
+                    except requests.exceptions.RequestException as error:
+                        print(error)
+                        return
+                print("Info; Setting Register ", register, " (", cmd_name, ") to ", value, ", \
+                      Response:", resp, sep='')
+            else:
+                print("Error: write to invalid inverter register: ", register)
 
         if cmd == "set_soc":  # Sets target SoC to value
             set_inverter_register("77", arg)
@@ -736,7 +775,8 @@ def set_mihome_switch(device_id: str, turn_on: bool) -> bool:
         "id" : int(device_id),
     }
 
-    time.sleep(1)  # Hold off for a second to avoid dropped commands at MiHome server
+    # Delay to avoid dropped commands at MiHome server and interference between base stations
+    time.sleep(5)
 
     try:
         req = requests.put(url, auth=(user_id, api_key), json=payload, timeout=5)
@@ -856,6 +896,9 @@ def balance_loads():
 if __name__ == '__main__':
 
     print("Info; PALM... PV Automated Load Manager Version:", PALM_VERSION)
+    print("Command line options (only one can be used):")
+    print("-t | --test  | test mode (12x speed, no external server writes)")
+    print("-d | --debug | debug mode, extra verbose")
 
     # Parse any command-line arguments
     TEST_MODE: bool = False
