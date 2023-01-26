@@ -25,24 +25,35 @@ For full functionality, use palm.py with the additional server data in settings.
 
 INSTALLATION INSTRUCTIONS FOR RASPBERRY PI
 1. Create local directories:
+
     $ mkdir /home/pi/palm
+
     $ mkdir /home/pi/logs
 
 2. Download all files to /home/pi/palm/
+
     $ cd /home/pi/palm
+
     $ wget github.com/salewis38/palm/archive/heads/main.zip
+
     $ unzip main.zip
+
     $ cp -rp palm-heads-main/* ./
     
 3. Edit settings.py with your system details, etc
+
     $ nano settings.py
 
 4. Run palm.py or palm_soc.py, initially in test mode with the command:
+
     $ ./palm.py -t
 
 5. To run as a persistent service, execute the following commands:
+
     $ sudo cp palm.service /lib/systemd/system
+ 
     $ sudo systemctl start palm.service
+    
     $ sudo systemctl enable palm.service
  
     This will run palm.py in the background and save date-coded logfiles to /home/pi/logs
