@@ -262,7 +262,7 @@ class GivEnergyObj:
                 print("Error: write to invalid inverter register: ", register)
 
         if cmd == "set_soc":  # Sets target SoC to value
-            set_inverter_register("77", arg)
+            set_inverter_register("77", arg[0])
             set_inverter_register("64", stgs.GE.start_time)
             set_inverter_register("65", stgs.GE.end_time)
 
