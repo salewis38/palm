@@ -44,8 +44,9 @@ import settings as stgs
 # v0.8.4bSoC   31/Dec/22 Re-merge with Palm 0.8.4b, add example for second charge period
 # v0.8.4cSoC   01/Jan/23 General tidy up
 # v0.8.4dSoC   09/Jan/23 Updated GivEnergyObj to download & validate inverter commands
+# v0.8.5SoC    04/May/23 Fixed midnight rollover issue in SoC calculation timing 
 
-PALM_VERSION = "v0.8.4dSoC"
+PALM_VERSION = "v0.8.5SoC"
 # -*- coding: utf-8 -*-
 
 class GivEnergyObj:
@@ -554,9 +555,13 @@ if __name__ == '__main__':
             solcast.update()
 
         else:
+            start_time_mins = time_to_mins(stgs.GE.start_time)
+            if start_time_mins < 6:  # Correct for off-peak start = 00:00
+                start_time_mins = start_time_mins + 1440
+
             # 5 minutes before off-peak start for next day's forecast
             if (TEST_MODE and LOOP_COUNTER_VAR == 0) or \
-                TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.start_time) - 5:
+                TIME_NOW_MINS_VAR == start_time - 5:
                 try:
                     solcast.update()
                 except Exception:
@@ -564,7 +569,7 @@ if __name__ == '__main__':
 
             # 2 minutes before off-peak start for setting overnight battery charging target
             if (TEST_MODE and LOOP_COUNTER_VAR == 2) or \
-                TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.start_time) - 2:
+                TIME_NOW_MINS_VAR == start_time - 2:
                 # compute & set SoC target
                 try:
                     ge.get_load_hist()
@@ -584,7 +589,8 @@ if __name__ == '__main__':
                 ge.compute_tgt_soc(solcast, 35, True)
 
             # Afternoon battery boost in winter months to load shift from peak period
-            if MONTH_VAR in stgs.GE.winter:
+            if MONTH_VAR in stgs.GE.winter and \
+                time_to_mins(stgs.GE.boost_start) < time_to_mins(stgs.GE.boost_finish):
                 if TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.boost_start):
                     print("info; Enabling afternoon battery boost")
                     ge.set_mode("charge_now", "")
