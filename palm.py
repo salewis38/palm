@@ -49,7 +49,7 @@ import settings as stgs
 # v0.8.4b   24/Dec/22 Winter boost conditional on CO2 intensity
 # v0.8.4c   01/Jan/23 General tidy up
 # v0.8.4d   09/Jan/23 Updated GivEnergyObj to download & validate inverter commands
-# v0.8.5    04/May/23 Fixed midnight rollover issue in SoC calculation timing 
+# v0.8.5    04/May/23 Fixed midnight rollover issue in SoC calculation timing
 
 PALM_VERSION = "v0.8.5"
 # -*- coding: utf-8 -*-
@@ -964,7 +964,7 @@ if __name__ == '__main__':
 
             # 5 minutes before off-peak start for next day's forecast
             if (TEST_MODE and LOOP_COUNTER_VAR == 0) or \
-                TIME_NOW_MINS_VAR == start_time - 5:
+                TIME_NOW_MINS_VAR == start_time_mins - 5:
                 try:
                     solcast.update()
                 except Exception:
@@ -972,7 +972,7 @@ if __name__ == '__main__':
 
             # 2 minutes before off-peak start for setting overnight battery charging target
             if (TEST_MODE and LOOP_COUNTER_VAR == 2) or \
-                TIME_NOW_MINS_VAR == start_time - 2:
+                TIME_NOW_MINS_VAR == start_time_mins - 2:
                 # compute & set SoC target
                 try:
                     ge.get_load_hist()
