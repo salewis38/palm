@@ -958,13 +958,9 @@ if __name__ == '__main__':
         else:
             # Schedule activities at specific intervals
 
-            start_time_mins = time_to_mins(stgs.GE.start_time)
-            if start_time_mins < 6:  # Correct for off-peak start = 00:00
-                start_time_mins = start_time_mins + 1440
-
             # 5 minutes before off-peak start for next day's forecast
             if (TEST_MODE and LOOP_COUNTER_VAR == 0) or \
-                TIME_NOW_MINS_VAR == start_time_mins - 5:
+                TIME_NOW_MINS_VAR == (time_to_mins(stgs.GE.start_time) + 1435) % 1440:
                 try:
                     solcast.update()
                 except Exception:
@@ -972,7 +968,7 @@ if __name__ == '__main__':
 
             # 2 minutes before off-peak start for setting overnight battery charging target
             if (TEST_MODE and LOOP_COUNTER_VAR == 2) or \
-                TIME_NOW_MINS_VAR == start_time_mins - 2:
+                TIME_NOW_MINS_VAR == (time_to_mins(stgs.GE.start_time) + 1438) % 1440:
                 # compute & set SoC target
                 try:
                     ge.get_load_hist()
