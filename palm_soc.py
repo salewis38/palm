@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 """PALM - PV Active Load Manager."""
+# NOTE: this is the modified version of palm_soc by Graham Hobson created 12 May 2023. Changes include:
+# New command line argument (-o) added to enable once mode (immediate execution then exit).
+# This is useful if the application is run from a cron job or iOS scheduled event.
+# When using once mode, setting inverter start_time and end_time is now optional. They can 
+# be set to empty strings in settings.py and the times won't be updated in the
+# inverter registers (for users that want to control times through the GivEnergy app).
+# Added timestamp to start of main loop logging. Useful for log analysis.
+# Corrected one typo in log narrative.
 
 import sys
 import time
@@ -44,9 +52,9 @@ import settings as stgs
 # v0.8.4bSoC   31/Dec/22 Re-merge with Palm 0.8.4b, add example for second charge period
 # v0.8.4cSoC   01/Jan/23 General tidy up
 # v0.8.4dSoC   09/Jan/23 Updated GivEnergyObj to download & validate inverter commands
-# v0.8.5SoC    04/May/23 Fixed midnight rollover issue in SoC calculation timing
+# v0.8.5SoC    04/May/23 Fixed midnight rollover issue in SoC calculation timing 
 
-PALM_VERSION = "v0.8.5SoC"
+PALM_VERSION = "v0.8.5SoC-GH"
 # -*- coding: utf-8 -*-
 
 class GivEnergyObj:
@@ -70,7 +78,7 @@ class GivEnergyObj:
                       'total': {'solar': 0, 'grid': {'import': 0, 'export': 0},
                                 'battery': {'charge': 0, 'discharge': 0}, 'consumption': 0}}
         self.meter_status: List[str] = [meter_item] * 5
-
+            
         self.read_time_mins: int = -100
         self.line_voltage: float = 0
         self.grid_power: int = 0
@@ -102,7 +110,7 @@ class GivEnergyObj:
         self.cmd_list = json.loads(response.content.decode('utf-8'))['data']
 
         if DEBUG_MODE:
-            print("Inverter command list donwloaded")
+            print("Inverter command list downloaded") # GH - typo corrected
             print("Valid commands:")
             for line in self.cmd_list:
                 print(line['id'], " - ", line['name'])
@@ -264,13 +272,17 @@ class GivEnergyObj:
 
         if cmd == "set_soc":  # Sets target SoC to value
             set_inverter_register("77", arg[0])
-            set_inverter_register("64", stgs.GE.start_time)
-            set_inverter_register("65", stgs.GE.end_time)
+            if stgs.GE.start_time != "":
+                set_inverter_register("64", stgs.GE.start_time)
+            if stgs.GE.end_time != "":
+                set_inverter_register("65", stgs.GE.end_time)
 
         elif cmd == "set_soc_winter":  # Restore default overnight charge params
             set_inverter_register("77", "100")
-            set_inverter_register("64", stgs.GE.start_time)
-            set_inverter_register("65", stgs.GE.end_time_winter)
+            if stgs.GE.start_time != "":
+                set_inverter_register("64", stgs.GE.start_time)
+            if stgs.GE.end_time_winter != "":
+                set_inverter_register("65", stgs.GE.end_time_winter)
 
         elif cmd == "charge_now":
             set_inverter_register("77", "100")
@@ -523,10 +535,13 @@ if __name__ == '__main__':
     print("Command line options (only one can be used):")
     print("-t | --test  | test mode (12x speed, no external server writes)")
     print("-d | --debug | debug mode, extra verbose")
+    print("-o | --once  | once mode, runs the forecast collection and inverter update immediately then exits")
 
     # Parse any command-line arguments
     TEST_MODE: bool = False
     DEBUG_MODE: bool = False
+    ONCE_MODE: bool = False
+    
     if len(sys.argv) > 1:
         if str(sys.argv[1]) in ["-t", "--test"]:
             TEST_MODE = True
@@ -535,8 +550,11 @@ if __name__ == '__main__':
         elif str(sys.argv[1]) in ["-d", "--debug"]:
             DEBUG_MODE = True
             print("Info; Running in debug mode, extra verbose")
+        elif str(sys.argv[1]) in ["-o", "--once"]:
+            ONCE_MODE = True
+            print("Info; Running in once mode, execute forecast and inverter update immediately, then exit")
 
-    print("Info; Entering main loop...")
+
     sys.stdout.flush()
 
     while True:  # Main Loop
@@ -548,6 +566,9 @@ if __name__ == '__main__':
 
         if LOOP_COUNTER_VAR == 0:  # Initialise
             # GivEnergy power object initialisation
+            # useful for logging purposes to see a timestamp when the MAIN LOOP starts for the first time
+            print("Info; ----------- STARTING MAIN LOOP ---------- ", LONG_TIME_NOW_VAR)
+
             ge: GivEnergyObj = GivEnergyObj()
             ge.get_load_hist()
             # Solcast PV prediction object initialisation
@@ -555,9 +576,16 @@ if __name__ == '__main__':
             solcast.update()
 
         else:
+            if ONCE_MODE: # times are not relevant if in once mode 
+                start_time_mins = 0
+            else:            
+                start_time_mins = time_to_mins(stgs.GE.start_time)
+                if start_time_mins < 6:  # Correct for off-peak start = 00:00
+                    start_time_mins = start_time_mins + 1440
+    
             # 5 minutes before off-peak start for next day's forecast
             if (TEST_MODE and LOOP_COUNTER_VAR == 0) or \
-                TIME_NOW_MINS_VAR == (time_to_mins(stgs.GE.start_time) + 1435) % 1440:
+                (TIME_NOW_MINS_VAR == start_time_mins - 5 and ONCE_MODE == False):
                 try:
                     solcast.update()
                 except Exception:
@@ -565,7 +593,8 @@ if __name__ == '__main__':
 
             # 2 minutes before off-peak start for setting overnight battery charging target
             if (TEST_MODE and LOOP_COUNTER_VAR == 2) or \
-                TIME_NOW_MINS_VAR == (time_to_mins(stgs.GE.start_time) + 1438) % 1440:
+                (ONCE_MODE and LOOP_COUNTER_VAR == 2) or \
+                TIME_NOW_MINS_VAR == start_time_mins - 2:
                 # compute & set SoC target
                 try:
                     ge.get_load_hist()
@@ -584,6 +613,10 @@ if __name__ == '__main__':
                 print("Info; 35% weighted forecast...")
                 ge.compute_tgt_soc(solcast, 35, True)
 
+                # if running in once mode we can quit after main inverter update
+                if ONCE_MODE:
+                    exit()
+
             # Afternoon battery boost in winter months to load shift from peak period
             if MONTH_VAR in stgs.GE.winter and \
                 time_to_mins(stgs.GE.boost_start) < time_to_mins(stgs.GE.boost_finish):
@@ -595,12 +628,12 @@ if __name__ == '__main__':
 
         LOOP_COUNTER_VAR += 1
 
-        if TIME_NOW_MINS_VAR == 0:  # Reset frame counter every 24 hours
+        if (TIME_NOW_MINS_VAR == 0 and ONCE_MODE == False):  # Reset frame counter every 24 hours
             ge.pv_energy = 0  # Avoids carry-over issues with PVOutput
             ge.grid_energy = 0
             LOOP_COUNTER_VAR = 1
 
-        if TEST_MODE:  # Wait 5 seconds
+        if (TEST_MODE or ONCE_MODE):  # Wait 5 seconds
             time.sleep(5)
         else:  # Sync to minute rollover on system clock
             CURRENT_MINUTE = int(time.strftime("%M", time.localtime()))
@@ -608,4 +641,5 @@ if __name__ == '__main__':
                 time.sleep(10)
 
         sys.stdout.flush()
+        
 # End of main
