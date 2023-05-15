@@ -1,5 +1,5 @@
 """Settings file for use with palm.py"""
-# version 2023.02.05
+# version 2023.05.15
 
 # SolCast PV forecast generator. Two forecasts are obtained, one per array
 class Solcast:
