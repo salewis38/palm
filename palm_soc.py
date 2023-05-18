@@ -71,7 +71,7 @@ class GivEnergyObj:
                       'total': {'solar': 0, 'grid': {'import': 0, 'export': 0},
                                 'battery': {'charge': 0, 'discharge': 0}, 'consumption': 0}}
         self.meter_status: List[str] = [meter_item] * 5
-            
+
         self.read_time_mins: int = -100
         self.line_voltage: float = 0
         self.grid_power: int = 0
@@ -528,13 +528,13 @@ if __name__ == '__main__':
     print("Command line options (only one can be used):")
     print("-t | --test  | test mode (12x speed, no external server writes)")
     print("-d | --debug | debug mode, extra verbose")
-    print("-o | --once  | once mode, runs the forecast collection and inverter update immediately then exits")
+    print("-o | --once  | once mode, collects forecast, updates inverter SoC target and then exits")
 
     # Parse any command-line arguments
     TEST_MODE: bool = False
     DEBUG_MODE: bool = False
     ONCE_MODE: bool = False
-    
+
     if len(sys.argv) > 1:
         if str(sys.argv[1]) in ["-t", "--test"]:
             TEST_MODE = True
@@ -545,7 +545,7 @@ if __name__ == '__main__':
             print("Info; Running in debug mode, extra verbose")
         elif str(sys.argv[1]) in ["-o", "--once"]:
             ONCE_MODE = True
-            print("Info; Running in once mode, execute forecast and inverter update immediately, then exit")
+            print("Info; Running in once mode, execute forecast and inverter SoC update, then exit")
 
     sys.stdout.flush()
 
@@ -567,14 +567,14 @@ if __name__ == '__main__':
             solcast.update()
 
         else:
-            # Note: times are not relevant if in Once Mode 
+            # Note: times are not relevant if in Once Mode
             start_time_mins = time_to_mins(stgs.GE.start_time)
             if start_time_mins < 6:  # Correct for off-peak start = 00:00
                 start_time_mins = start_time_mins + 144
 
             # 5 minutes before off-peak start for next day's forecast
             if (TEST_MODE and LOOP_COUNTER_VAR == 0) or \
-                (TIME_NOW_MINS_VAR == start_time_mins - 5 and ONCE_MODE == False):
+                (TIME_NOW_MINS_VAR == start_time_mins - 5 and ONCE_MODE is False):
                 try:
                     solcast.update()
                 except Exception:
@@ -608,7 +608,7 @@ if __name__ == '__main__':
 
         LOOP_COUNTER_VAR += 1
 
-        if (TIME_NOW_MINS_VAR == 0 and ONCE_MODE == False):  # Reset frame counter every 24 hours
+        if TIME_NOW_MINS_VAR == 0:  # Reset frame counter every 24 hours
             ge.pv_energy = 0  # Avoids carry-over issues with PVOutput
             ge.grid_energy = 0
             LOOP_COUNTER_VAR = 1
@@ -621,5 +621,5 @@ if __name__ == '__main__':
                 time.sleep(10)
 
         sys.stdout.flush()
-        
+
 # End of main
