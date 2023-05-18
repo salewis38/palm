@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
 """PALM - PV Active Load Manager."""
-# NOTE: this is the modified version of palm_soc by Graham Hobson created 12 May 2023. Changes include:
-# New command line argument (-o) added to enable once mode (immediate execution then exit).
-# This is useful if the application is run from a cron job or iOS scheduled event.
-# When using once mode, setting inverter start_time and end_time is now optional. They can 
-# be set to empty strings in settings.py and the times won't be updated in the
-# inverter registers (for users that want to control times through the GivEnergy app).
-# Added timestamp to start of main loop logging. Useful for log analysis.
-# Corrected one typo in log narrative.
 
 import sys
 import time
@@ -52,9 +44,10 @@ import settings as stgs
 # v0.8.4bSoC   31/Dec/22 Re-merge with Palm 0.8.4b, add example for second charge period
 # v0.8.4cSoC   01/Jan/23 General tidy up
 # v0.8.4dSoC   09/Jan/23 Updated GivEnergyObj to download & validate inverter commands
-# v0.8.5SoC    04/May/23 Fixed midnight rollover issue in SoC calculation timing 
+# v0.8.5SoC    04/May/23 Fixed midnight rollover issue in SoC calculation timing
+# v0.8.6SOC    18/May/23 Merged G Hobson's Once Mode changes
 
-PALM_VERSION = "v0.8.5SoC-GH"
+PALM_VERSION = "v0.8.6SoC"
 # -*- coding: utf-8 -*-
 
 class GivEnergyObj:
@@ -554,7 +547,6 @@ if __name__ == '__main__':
             ONCE_MODE = True
             print("Info; Running in once mode, execute forecast and inverter update immediately, then exit")
 
-
     sys.stdout.flush()
 
     while True:  # Main Loop
@@ -566,7 +558,6 @@ if __name__ == '__main__':
 
         if LOOP_COUNTER_VAR == 0:  # Initialise
             # GivEnergy power object initialisation
-            # useful for logging purposes to see a timestamp when the MAIN LOOP starts for the first time
             print("Info; ----------- STARTING MAIN LOOP ---------- ", LONG_TIME_NOW_VAR)
 
             ge: GivEnergyObj = GivEnergyObj()
@@ -576,13 +567,11 @@ if __name__ == '__main__':
             solcast.update()
 
         else:
-            if ONCE_MODE: # times are not relevant if in once mode 
-                start_time_mins = 0
-            else:            
-                start_time_mins = time_to_mins(stgs.GE.start_time)
-                if start_time_mins < 6:  # Correct for off-peak start = 00:00
-                    start_time_mins = start_time_mins + 1440
-    
+            # Note: times are not relevant if in Once Mode 
+            start_time_mins = time_to_mins(stgs.GE.start_time)
+            if start_time_mins < 6:  # Correct for off-peak start = 00:00
+                start_time_mins = start_time_mins + 144
+
             # 5 minutes before off-peak start for next day's forecast
             if (TEST_MODE and LOOP_COUNTER_VAR == 0) or \
                 (TIME_NOW_MINS_VAR == start_time_mins - 5 and ONCE_MODE == False):
@@ -598,22 +587,13 @@ if __name__ == '__main__':
                 # compute & set SoC target
                 try:
                     ge.get_load_hist()
-                    print("Info; 10% forecast...")
-                    ge.compute_tgt_soc(solcast, 10, False)
-                    print("Info; 50% forecast...")
-                    ge.compute_tgt_soc(solcast, 50, False)
-                    print("Info; 90% forecast...")
-                    ge.compute_tgt_soc(solcast, 90, False)
-
+                    # Change weighting in command according to desired risk/reward profile
+                    print("Info; 35% weighted forecast...")
+                    ge.compute_tgt_soc(solcast, 35, True)
                 except Exception:
                     print("Warning; unable to set SoC")
 
-                # Write final SoC target to GivEnergy register
-                # Change weighting in command according to desired risk/reward profile
-                print("Info; 35% weighted forecast...")
-                ge.compute_tgt_soc(solcast, 35, True)
-
-                # if running in once mode we can quit after main inverter update
+                # if running in once mode, quit after inverter SoC update
                 if ONCE_MODE:
                     exit()
 
