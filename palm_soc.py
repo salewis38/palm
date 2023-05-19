@@ -574,7 +574,7 @@ if __name__ == '__main__':
 
             # 5 minutes before off-peak start for next day's forecast
             if (TEST_MODE and LOOP_COUNTER_VAR == 0) or \
-                (TIME_NOW_MINS_VAR == start_time_mins - 5 and ONCE_MODE is False):
+                (ONCE_MODE is False and TIME_NOW_MINS_VAR == start_time_mins - 5):
                 try:
                     solcast.update()
                 except Exception:
@@ -613,7 +613,7 @@ if __name__ == '__main__':
             ge.grid_energy = 0
             LOOP_COUNTER_VAR = 1
 
-        if (TEST_MODE or ONCE_MODE):  # Wait 5 seconds
+        if TEST_MODE:  # Wait 5 seconds
             time.sleep(5)
         else:  # Sync to minute rollover on system clock
             CURRENT_MINUTE = int(time.strftime("%M", time.localtime()))
