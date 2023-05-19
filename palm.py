@@ -269,13 +269,14 @@ class GivEnergyObj:
 
         if cmd == "set_soc":  # Sets target SoC to value
             set_inverter_register("77", arg[0])
-            set_inverter_register("64", stgs.GE.start_time)
-            set_inverter_register("65", stgs.GE.end_time)
+            set_inverter_register("64", stgs.GE.start_time) if stgs.GE.start_time != ""
+            set_inverter_register("65", stgs.GE.end_time) if stgs.GE.end_time != ""
 
         elif cmd == "set_soc_winter":  # Restore default overnight charge params
             set_inverter_register("77", "100")
-            set_inverter_register("64", stgs.GE.start_time)
-            set_inverter_register("65", stgs.GE.end_time_winter)
+            set_inverter_register("64", stgs.GE.start_time) if stgs.GE.start_time != ""
+            set_inverter_register("65", stgs.GE.end_time_winter) if stgs.GE.end_time_winter != ""
+
 
         elif cmd == "charge_now":
             set_inverter_register("77", "100")
