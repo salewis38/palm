@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.8
+#!/usr/bin/env python3.9
 """PALM - PV Active Load Manager."""
 
 import sys
@@ -86,8 +86,9 @@ class GivEnergyObj:
         self.consumption: int = 0
         self.soc: int = 0
         self.base_load = stgs.GE.base_load
+        self.tgt_soc = 100
 
-        #  Download commands which are alid for inverter
+        #  Download commands which are valid for inverter
         url = stgs.GE.url + "settings"
         key = "Bearer " + stgs.GE.key
 
@@ -237,12 +238,14 @@ class GivEnergyObj:
         def set_inverter_register(register: str, value: str):
             """Exactly as it says"""
 
-            result = False
-            for line in self.cmd_list:
-                if line['id'] == int(register):
-                    cmd_name = line['name']
-                    result = True
-                    break
+            result = True  # Remove this check as it throws an error if network down on startup
+            # result = False
+            # for line in self.cmd_list:
+            #     if line['id'] == int(register):
+            #         cmd_name = line['name']
+            #         result = True
+            #         break
+            cmd_name = ""
 
             if result:
                 url = stgs.GE.url + "settings/" + register + "/write"
@@ -269,14 +272,13 @@ class GivEnergyObj:
 
         if cmd == "set_soc":  # Sets target SoC to value
             set_inverter_register("77", arg[0])
-            set_inverter_register("64", stgs.GE.start_time) if stgs.GE.start_time != ""
-            set_inverter_register("65", stgs.GE.end_time) if stgs.GE.end_time != ""
+            set_inverter_register("64", stgs.GE.start_time)
+            set_inverter_register("65", stgs.GE.end_time)
 
         elif cmd == "set_soc_winter":  # Restore default overnight charge params
             set_inverter_register("77", "100")
-            set_inverter_register("64", stgs.GE.start_time) if stgs.GE.start_time != ""
-            set_inverter_register("65", stgs.GE.end_time_winter) if stgs.GE.end_time_winter != ""
-
+            set_inverter_register("64", stgs.GE.start_time)
+            set_inverter_register("65", stgs.GE.end_time_winter)
 
         elif cmd == "charge_now":
             set_inverter_register("77", "100")
@@ -383,6 +385,7 @@ class GivEnergyObj:
 
         if commit:
             self.set_mode("set_soc", str(tgt_soc))
+            self.tgt_soc = tgt_soc
 
 # End of GivEnergyObj() class definition
 
@@ -919,6 +922,7 @@ if __name__ == '__main__':
 
     LOOP_COUNTER_VAR: int = 0  # 1 minute minor frame. "0" = initialise
     PVO_TSTAMP_VAR: int = 0  # Records value of LOOP_COUNTER_VAR when PV data last written
+    manual_hold = False  # Fix for inverter hunting after hitting SoC target
 
     while True:  # Main Loop
         # Current time definitions
@@ -973,12 +977,6 @@ if __name__ == '__main__':
                 # compute & set SoC target
                 try:
                     ge.get_load_hist()
-                    print("Info; 10% forecast...")
-                    ge.compute_tgt_soc(solcast, 10, False)
-                    print("Info; 50% forecast...")
-                    ge.compute_tgt_soc(solcast, 50, False)
-                    print("Info; 90% forecast...")
-                    ge.compute_tgt_soc(solcast, 90, False)
                     print("Info; 35% weighted forecast...")
                     ge.compute_tgt_soc(solcast, 35, True)
                 except Exception:
@@ -986,9 +984,22 @@ if __name__ == '__main__':
                 # Reset sunrise and sunset for next day
                 env_obj.reset_sr_ss()
 
+            # Pause/resune battery once charged to compensate for inverter bug
+            if not manual_hold and \
+                time_to_mins(stgs.GE.start_time) < TIME_NOW_MINS_VAR < time_to_mins(stgs.GE.end_time):
+                if -2 < (ge.soc - ge.tgt_soc) < 2:  # Within 2% of target avoids rounding errors
+                    ge.set_mode("pause")
+                    manual_hold = True
+
+            if MONTH_VAR not in stgs.GE.winter and TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.end_time) or \
+                MONTH_VAR in stgs.GE.winter and TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.end_time_winter):
+                ge.set_mode("resume")
+                manual_hold = False
+
             # Afternoon battery boost in winter months to load shift from peak period
             if MONTH_VAR in stgs.GE.winter and \
                 time_to_mins(stgs.GE.boost_start) < time_to_mins(stgs.GE.boost_finish):
+
                 if TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.boost_start) and env_obj.co2_high:
                     print("info; Enabling afternoon battery boost")
                     ge.set_mode("charge_now")
