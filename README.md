@@ -14,16 +14,16 @@ It performs the following functions:
 
 * a simple sequencer for load management, based on time, temperature, battery charge and CO2/kWh
 
-UPDATE 29/Jul/2022
-New file palm_soc.py contains only the code to calculate the optimal SoC for overnight (ac) charging of GivEnergy battery. To use this, you will need to download palm_soc.py and settings.py and add your own Solcast API, plant and login details to settings.py.
+UPDATE 30/May/2023
+File palm_soc.py is now retired as the functionality has been merged back into palm.py. The settings.py file has had minor updates to accommodate this change.
 
-Use the command "palm_soc.py -t" for test, drop the "-t" argument for the target value to be written to the GivEnergy server
+palm.py also includes ONCE_MODE "palm.py -o" to run through the overnight calculations and then exit.
 
-The conservativeness of the forecast works for me. It can be altered by changing the parameters for the final ge_compute_soc command in palm_soc.py 
+Use the command "palm.py -t" for test, drop the "-t" argument for the target value to be written to the GivEnergy server
 
-For full functionality, use palm.py with the additional server data in settings.py for PVOutput.org, etc.
+The conservativeness of the forecast works for me and is set at 35%. It can be altered by changing the "Solcast.weight" parameter in settings.py 
 
-INSTALLATION INSTRUCTIONS FOR RASPBERRY PI
+INSTALLATION INSTRUCTIONS, INCLUDING HOW TO RUN AS A SERVICE ON RASPBERRY PI
 1. Create local directories:
 
     $ mkdir /home/pi/palm
@@ -44,7 +44,7 @@ INSTALLATION INSTRUCTIONS FOR RASPBERRY PI
 
     $ nano settings.py
 
-4. Run palm.py or palm_soc.py, initially in test mode with the command:
+4. Run palm.py, initially in test mode with the command:
 
     $ ./palm.py -t
 
