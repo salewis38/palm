@@ -45,7 +45,7 @@ import settings as stgs
 # v0.8.4cSoC   01/Jan/23 General tidy up
 # v0.8.4dSoC   09/Jan/23 Updated GivEnergyObj to download & validate inverter commands
 # v0.8.5SoC    04/May/23 Fixed midnight rollover issue in SoC calculation timing
-# v0.8.6SOC    18/May/23 Merged G Hobson's Once Mode changes
+# v0.8.6SOC    18/May/23 Merged G Hobson's Once Mode changes - FINAL VERSION
 
 PALM_VERSION = "v0.8.6SoC"
 # -*- coding: utf-8 -*-
