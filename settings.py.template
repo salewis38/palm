@@ -1,71 +1,70 @@
-"""Settings file for use with palm.py"""
-# version 2023.05.15
+# version 2023.05.28
+# Settings file for use with palm.py
 
 # SolCast PV forecast generator. Two forecasts are obtained, one per array
 class Solcast:
-    """User settings for Solcast PV prediction account"""
     enable = True
-    key = ""
-    url_se = "https://api.solcast.com.au/rooftop_sites/XXXX"
-    url_sw = "https://api.solcast.com.au/rooftop_sites/XXXX"
+    key = "xxxx"
+    url_se = "https://api.solcast.com.au/rooftop_sites/xxxx"
+    url_sw = "https://api.solcast.com.au/rooftop_sites/xxxx"
     cmd = "/forecasts?format=json"
+    weight = 35  # Confidence factor for forecast (range 10 to 90)
 
 class PVData:
-    """Internal setting """
     PwrThreshold = 30  # Sets power threshold for virtual sunset (lighting up time)
 
+ # PVOutput.org data logging/analysis service
 class PVOutput:
-    """User settings for PVOutput.org account/. Used for data logging/analysis"""
     enable = True
     url= "https://pvoutput.org/service/r2/"
-    key = ""
-    sid = ""
+    key = "xxxx"
+    sid = "xxxx"
 
+# API for obtaining current UK carbon intensity of electricity generation
 class CarbonIntensity:
-    """User settings for obtaining current UK carbon intensity of electricity generation"""
     enable = True
     url = "https://api.carbonintensity.org.uk/regional/intensity/"
     RegionID = "/fw24h/regionid/15"
     Threshold = 250  # For Used to trigger afternoon battery charge
     Multiplier = 1.5  # For afternoon battery charge
 
+# Weather data
 class OpenWeatherMap:
-    """User settings for weather data"""
     enable = True
     url = "https://api.openweathermap.org/data/2.5/"
     url_weather = "https://api.openweathermap.org/data/2.5/weather?"
     url_forecast = "https://api.openweathermap.org/data/2.5/forecast?"
-    city_id = ""
+    city_id = "xxxx"
     payload = {
-    "lat"   : 52.05,
-    "lon"   : -1.985,
-    "appid" : "",
+    "lat"   : 51.05,
+    "lon"   : -0.985,
+    "appid" : "xxxx",
     "exclude" : "daily",
     "mode"  : 'JSON'
     }
 
+# User settings for GivEnergy inverter API
 class GE:
-    """User settings for GivEnergy inverter API"""
     enable = True
-    url = "https://api.givenergy.cloud/v1/inverter/CE_XXXXX/"
-    key="..--"
+    url = "https://api.givenergy.cloud/v1/inverter/CEXXXX/"
+    key="XXXX"
 
     # Disable SoC calculation in the winter months as consumption >> generation
     winter = ["01", "02", "11", "12"]
 
     # Throttle SoC calculation in shoulder months as consumption can vary with heating coming on
-    shoulder = ["03", "04", "05", "09", "10"]
+    shoulder = ["03", "04", "09", "10"]
 
     # Lower limit for state of charge (summertime)
     min_soc_target = 25
 
     # Higher SoC limit for shoulder months
-    max_soc_target = 75
+    max_soc_target = 60
 
     # Battery reserve for power cuts (minmum of 4%)
     batt_reserve = 4
 
-    # Nominal battery capacity in kWh
+    # Nominal battery capacity
     batt_capacity = 10.4
 
     # Proportion of battery that's usable
@@ -73,285 +72,32 @@ class GE:
 
     batt_max_charge = batt_capacity * batt_utilisation
 
-    # Inverter charge/discharge rate in kW
+    # Inverter charge/discharge rate
     charge_rate = 3
 
-# Legacy parameter - deprecated at palm version 0.9.0 (moved to Octopus.sched)
     # Default data for base load. Overwritten by actual data if available
     base_load = [0.3, 2, 0.3, 0.3, 0.3, 0.5, 1.7, 1.8, 2.6, 1.5, 0.5, 2.5,\
         1.3, 1, 1.5, 0.5, 0.3, 1, 1.5, 1, 0.6, 0.5, 0.5, 0.3]
 
-    # Start time for Overnight Charge. Leave blank to disable writing to inverter register
+    # Start time for Overnight Charge. If "" disables writing this inverter register
     start_time = "00:30"
 
-    # End time for Overnight Charge. Leave blank to disable writing to inverter register
+    # End time for Overnight Charge period. If "" disables writing this inverter register
     end_time = "04:30"
 
-    # Hold end time for 2 hours in winter to save battery for morning peak
-    # To disable, set to same time as end_time above
-    end_time_winter = "06:30"
+    # Delayed winter end time saves battery for morning peak. If "" disables writing this inverter register
+    end_time_winter = "06:30"    
 
-    # Winter afternoon boost start and end times for Cosy Octopus
-    # To disable, set boost_start and boost_finish to the same time
-    boost_start = "13:00"
-    boost_finish = "16:00"
+    # Winter afternoon boost start and end times
+    boost_start = "13:03"
+    boost_finish = "16:44"
 
-    # Fallback list of valid inverter commands. This gets updated on startup
-    valid_cmds = [{'id': 17, 'name': 'Enable AC Charge Upper % Limit', 'validation': 'Value must be either true or false'}, {'id': 24, 'name': 'Enable Eco Mode', 'validation': 'Value must be either true or false'}, {'id': 28, 'name': 'AC Charge 2 Start Time', 'validation': 'Value format should be HH:mm. Use correct time range for hour and minutes'}, {'id': 29, 'name': 'AC Charge 2 End Time', 'validation': 'Value format should be HH:mm. Use correct time range for hour and minutes'}, {'id': 41, 'name': 'DC Discharge 2 Start Time', 'validation': 'Value format should be HH:mm. Use correct time range for hour and minutes'}, {'id': 42, 'name': 'DC Discharge 2 End Time', 'validation': 'Value format should be HH:mm. Use correct time range for hour and minutes'}, {'id': 47, 'name': 'Inverter Max Output Active Power Percent', 'validation': 'Value must be between 0 and 100'}, {'id': 53, 'name': 'DC Discharge 1 Start Time', 'validation': 'Value format should be HH:mm. Use correct time range for hour and minutes'}, {'id': 54, 'name': 'DC Discharge 1 End Time', 'validation': 'Value format should be HH:mm. Use correct time range for hour and minutes'}, {'id': 56, 'name': 'Enable DC Discharge', 'validation': 'Value must be either true or false'}, {'id': 64, 'name': 'AC Charge 1 Start Time', 'validation': 'Value format should be HH:mm. Use correct time range for hour and minutes'}, {'id': 65, 'name': 'AC Charge 1 End Time', 'validation': 'Value format should be HH:mm. Use correct time range for hour and minutes'}, {'id': 66, 'name': 'AC Charge Enable', 'validation': 'Value must be either true or false'}, {'id': 71, 'name': 'Battery Reserve % Limit', 'validation': 'Value must be between 4 and 100'}, {'id': 72, 'name': 'Battery Charge Power', 'validation': 'Value must be between 0 and 3000'}, {'id': 73, 'name': 'Battery Discharge Power', 'validation': 'Value must be between 0 and 3000'}, {'id': 75, 'name': 'Battery Cutoff % Limit', 'validation': 'Value must be between 4 and 100'}, {'id': 77, 'name': 'AC Charge Upper % Limit', 'validation': 'Value must be between 0 and 100'}, {'id': 83, 'name': 'Restart Inverter', 'validation': 'Value can only be 100'}, {'id': 258, 'name': 'Force Off Grid', 'validation': 'Value must be either true or false'}]
-
-class Octopus:
-    """User settings for Octopus APIs to download Agile (or other) rates"""
-    enable_in = True
-    incoming_url = "https://api.octopus.energy/v1/products/AGILE-22-08-31/electricity-tariffs/E-1R-AGILE-22-08-31-L/standard-unit-rates/?page_size=96"
-    enable_out = False
-    outgoing_url = "https://api.octopus.energy/v1/products/AGILE-OUTGOING-19-05-13/electricity-tariffs/E-1R-AGILE-OUTGOING-19-05-13-A/standard-unit-rates/?page_size=96"
-
-
-class Schedule:
-    """User-defined schedule tables to set inverter operating modes"""
-    # The table below forms the basis of the daily schedule.
-    # Import/export costs can be updated from the Ocotpus API
-    # Load data can be updated from the GivEnergy API
-
-    # The following operating modes are valid:
-    # Mode 1a: TARGET    - Charge Full Power [to target SoC, will glide down if already higher]
-    # Mode 1b: IMPORT    - Charge Full Power [to target SoC, no discharge if already higher]
-    # Mode 2:  EXPORT    - Discharge Full Power [to target Reserve]
-    # Mode 3a: ECO       - Charge "ECO", Discharge "ECO"
-    # Mode 3b: CHARGE    - Charge "ECO", Discharge Off
-    # Mode 3c: DISCHARGE - Charge Off, Discharge "ECO"
-    # Mode 4:  HOLD      - Charge Off, Discharge Off
-    # Mode 5:  AGILE     - Allow software to select appropriate mode for conditions and Agile rates
-
-    # Target SoC is the actual target value if non-zero. "0" indicates target set by PV forecasting
-
-    # This example includes an overnight charge to the auto-calculated SoC target and an
-    # additional afternoon charge to a predefined value to reduce import during the evening peak
-
-    # Select one of the pre-defined template schedules using line "sched = sched_XX" AT THE END OF THIS SECTION
-
-# Agile Octopus template
-#   ["Time",   "Imp Cost", "Exp Price",    "Load (kWh)",    "Mode",        "Reserve",      "Target SoC"],
-    sched_agile = [
-    ["00:00",   33.97,       0.00,           0.3,            "AGILE",       5,                0],
-    ["00:30",   33.97,       0.00,           0.3,            "AGILE",       5,                0],
-    ["01:00",   33.97,       0.00,           2.0,            "AGILE",       5,                0],
-    ["01:30",   33.97,       0.00,           2.0,            "AGILE",       5,                0],
-    ["02:00",   33.97,       0.00,           0.3,            "AGILE",       5,                0],
-    ["02:30",   33.97,       0.00,           0.3,            "AGILE",       5,                0],
-    ["03:00",   33.97,       0.00,           0.3,            "AGILE",       5,                0],
-    ["03:30",   33.97,       0.00,           0.3,            "AGILE",       5,                0],
-    ["04:00",   33.97,       0.00,           0.3,            "AGILE",       5,                0],
-    ["04:30",   33.97,       0.00,           0.3,            "AGILE",       5,                0],
-    ["05:00",   33.97,       0.00,           0.5,            "AGILE",       5,                0],
-    ["05:30",   33.97,       0.00,           0.5,            "AGILE",       5,                0],
-    ["06:00",   33.97,       0.00,           1.7,            "AGILE",       5,                0],
-    ["06:30",   33.97,       0.00,           1.7,            "AGILE",       5,                0],
-    ["07:00",   33.97,       0.00,           1.8,            "AGILE",       5,                0],
-    ["07:30",   33.97,       0.00,           1.8,            "AGILE",       5,                0],
-    ["08:00",   33.97,       0.00,           2.6,            "AGILE",       5,                0],
-    ["08:30",   33.97,       0.00,           2.6,            "AGILE",       5,                0],
-    ["09:00",   33.97,       0.00,           1.5,            "AGILE",       5,                0],
-    ["09:30",   33.97,       0.00,           1.5,            "AGILE",       5,                0],
-    ["10:00",   33.97,       0.00,           0.5,            "AGILE",       5,                0],
-    ["10:30",   33.97,       0.00,           0.5,            "AGILE",       5,                0],
-    ["11:00",   33.97,       0.00,           2.5,            "AGILE",       5,                0],
-    ["11:30",   33.97,       0.00,           2.5,            "AGILE",       5,                0],
-    ["12:00",   33.97,       0.00,           1.3,            "AGILE",       5,                0],
-    ["12:30",   33.97,       0.00,           1.3,            "AGILE",       5,                0],
-    ["13:00",   33.97,       0.00,           1.0,            "AGILE",       5,                0],
-    ["13:30",   33.97,       0.00,           1.0,            "AGILE",       5,                0],
-    ["14:00",   33.97,       0.00,           1.5,            "AGILE",       5,                0],
-    ["14:30",   33.97,       0.00,           1.5,            "AGILE",       5,                0],
-    ["15:00",   33.97,       0.00,           0.5,            "AGILE",       5,                0],
-    ["15:30",   33.97,       0.00,           0.5,            "AGILE",       5,                0],
-    ["16:00",   33.97,       0.00,           0.3,            "AGILE",       5,                0],
-    ["16:30",   33.97,       0.00,           0.3,            "AGILE",       5,                0],
-    ["17:00",   33.97,       0.00,           1.0,            "AGILE",       5,                0],
-    ["17:30",   33.97,       0.00,           1.0,            "AGILE",       5,                0],
-    ["18:00",   33.97,       0.00,           1.5,            "AGILE",       5,                0],
-    ["18:30",   33.97,       0.00,           1.5,            "AGILE",       5,                0],
-    ["19:00",   33.97,       0.00,           1.0,            "AGILE",       5,                0],
-    ["19:30",   33.97,       0.00,           1.0,            "AGILE",       5,                0],
-    ["20:00",   33.97,       0.00,           0.6,            "AGILE",       5,                0],
-    ["20:30",   33.97,       0.00,           0.6,            "AGILE",       5,                0],
-    ["21:00",   33.97,       0.00,           0.5,            "AGILE",       5,                0],
-    ["21:30",   33.97,       0.00,           0.5,            "AGILE",       5,                0],
-    ["22:00",   33.97,       0.00,           0.5,            "AGILE",       5,                0],
-    ["22:30",   33.97,       0.00,           0.5,            "AGILE",       5,                0],
-    ["23:00",   33.97,       0.00,           0.3,            "AGILE",       5,                0],
-    ["23:30",   33.97,       0.00,           0.3,            "AGILE",       5,                0],
-    ]
-
-# Ocotpus Go. Note GO_TGT also provides a hold period after charge for winter use
-#   ["Time",   "Imp Cost", "Exp Price",    "Load (kWh)",    "Mode",        "Reserve",      "Target SoC"],
-    sched_go = [
-    ["00:00",   13.0,       0.00,           0.3,            "ECO",         5,                0],
-    ["00:30",   5.0,        0.00,           0.3,            "GO_TGT",      5,                0],
-    ["01:00",   5.0,        0.00,           2.0,            "GO_TGT",      5,                0],
-    ["01:30",   5.0,        0.00,           2.0,            "GO_TGT",      5,                0],
-    ["02:00",   5.0,        0.00,           0.3,            "GO_TGT",      5,                0],
-    ["02:30",   5.0,        0.00,           0.3,            "GO_TGT",      5,                0],
-    ["03:00",   5.0,        0.00,           0.3,            "GO_TGT",      5,                0],
-    ["03:30",   5.0,        0.00,           0.3,            "GO_TGT",      5,                0],
-    ["04:00",   5.0,        0.00,           0.3,            "GO_TGT",      5,                0],
-    ["04:30",   13.0,       0.00,           0.3,            "GO_TGT",      5,                0],
-    ["05:00",   13.0,       0.00,           0.5,            "GO_TGT",      5,                0],
-    ["05:30",   13.0,       0.00,           0.5,            "GO_TGT",      5,                0],
-    ["06:00",   13.0,       0.00,           1.7,            "GO_TGT",      5,                0],
-    ["06:30",   13.0,       0.00,           1.7,            "ECO",         5,                0],
-    ["07:00",   13.0,       0.00,           1.8,            "ECO",         5,                0],
-    ["07:30",   13.0,       0.00,           1.8,            "ECO",         5,                0],
-    ["08:00",   13.0,       0.00,           2.6,            "ECO",         5,                0],
-    ["08:30",   13.0,       0.00,           2.6,            "ECO",         5,                0],
-    ["09:00",   13.0,       0.00,           1.5,            "ECO",         5,                0],
-    ["09:30",   13.0,       0.00,           1.5,            "ECO",         5,                0],
-    ["10:00",   13.0,       0.00,           0.5,            "ECO",         5,                0],
-    ["10:30",   13.0,       0.00,           0.5,            "ECO",         5,                0],
-    ["11:00",   13.0,       0.00,           2.5,            "ECO",         5,                0],
-    ["11:30",   13.0,       0.00,           2.5,            "ECO",         5,                0],
-    ["12:00",   13.0,       0.00,           1.3,            "ECO",         5,                0],
-    ["12:30",   13.0,       0.00,           1.3,            "ECO",         5,                0],
-    ["13:00",   13.0,       0.00,           1.0,            "ECO",         5,                0],
-    ["13:30",   13.0,       0.00,           1.0,            "ECO",         5,                0],
-    ["14:00",   13.0,       0.00,           1.5,            "ECO",         5,                0],
-    ["14:30",   13.0,       0.00,           1.5,            "ECO",         5,                0],
-    ["15:00",   13.0,       0.00,           0.5,            "ECO",         5,                0],
-    ["15:30",   13.0,       0.00,           0.5,            "ECO",         5,                0],
-    ["16:00",   13.0,       0.00,           0.3,            "ECO",         5,                0],
-    ["16:30",   13.0,       0.00,           0.3,            "ECO",         5,                0],
-    ["17:00",   13.0,       0.00,           1.0,            "ECO",         5,                0],
-    ["17:30",   13.0,       0.00,           1.0,            "ECO",         5,                0],
-    ["18:00",   13.0,       0.00,           1.5,            "ECO",         5,                0],
-    ["18:30",   13.0,       0.00,           1.5,            "ECO",         5,                0],
-    ["19:00",   13.0,       0.00,           1.0,            "ECO",         5,                0],
-    ["19:30",   13.0,       0.00,           1.0,            "ECO",         5,                0],
-    ["20:00",   13.0,       0.00,           0.6,            "ECO",         5,                0],
-    ["20:30",   13.0,       0.00,           0.6,            "ECO",         5,                0],
-    ["21:00",   13.0,       0.00,           0.5,            "ECO",         5,                0],
-    ["21:30",   13.0,       0.00,           0.5,            "ECO",         5,                0],
-    ["22:00",   13.0,       0.00,           0.5,            "ECO",         5,                0],
-    ["22:30",   13.0,       0.00,           0.5,            "ECO",         5,                0],
-    ["23:00",   13.0,       0.00,           0.3,            "ECO",         5,                0],
-    ["23:30",   13.0,       0.00,           0.3,            "ECO",         5,                0],
-    ]
-
-# Dual daily charge settings for Cosy Octopus
-#   ["Time",   "Imp Cost", "Exp Price",    "Load (kWh)",    "Mode",        "Reserve",      "Target SoC"],
-    sched_cosy = [
-    ["00:00",   33.97,      0.00,           0.3,            "ECO",          5,                0],
-    ["00:30",   33.97,      0.00,           0.3,            "ECO",          5,                0],
-    ["01:00",   33.97,      0.00,           2.0,            "ECO",          5,                0],
-    ["01:30",   33.97,      0.00,           2.0,            "ECO",          5,                0],
-    ["02:00",   33.97,      0.00,           0.3,            "ECO",          5,                0],
-    ["02:30",   33.97,      0.00,           0.3,            "ECO",          5,                0],
-    ["03:00",   33.97,      0.00,           0.3,            "ECO",          5,                0],
-    ["03:30",   33.97,      0.00,           0.3,            "ECO",          5,                0],
-    ["04:00",   20.38,      0.00,           0.3,            "TARGET",       5,                0],
-    ["04:30",   20.38,      0.00,           0.3,            "TARGET",       5,                0],
-    ["05:00",   20.38,      0.00,           0.5,            "TARGET",       5,                0],
-    ["05:30",   20.38,      0.00,           0.5,            "TARGET",       5,                0],
-    ["06:00",   20.38,      0.00,           1.7,            "TARGET",       5,                0],
-    ["06:30",   20.38,      0.00,           1.7,            "TARGET",       5,                0],
-    ["07:00",   33.97,      0.00,           1.8,            "ECO",          5,                0],
-    ["07:30",   33.97,      0.00,           1.8,            "ECO",          5,                0],
-    ["08:00",   33.97,      0.00,           2.6,            "ECO",          5,                0],
-    ["08:30",   33.97,      0.00,           2.6,            "ECO",          5,                0],
-    ["09:00",   33.97,      0.00,           1.5,            "ECO",          5,                0],
-    ["09:30",   33.97,      0.00,           1.5,            "ECO",          5,                0],
-    ["10:00",   33.97,      0.00,           0.5,            "ECO",          5,                0],
-    ["10:30",   33.97,      0.00,           0.5,            "ECO",          5,                0],
-    ["11:00",   33.97,      0.00,           2.5,            "ECO",          5,                0],
-    ["11:30",   33.97,      0.00,           2.5,            "ECO",          5,                0],
-    ["12:00",   33.97,      0.00,           1.3,            "ECO",          5,                0],
-    ["12:30",   33.97,      0.00,           1.3,            "ECO",          5,                0],
-    ["13:00",   20.38,      0.00,           1.0,            "COSY_PM",      5,                0],
-    ["13:30",   20.38,      0.00,           1.0,            "COSY_PM",      5,                0],
-    ["14:00",   20.38,      0.00,           1.5,            "COSY_PM",      5,                0],
-    ["14:30",   20.38,      0.00,           1.5,            "COSY_PM",      5,                0],
-    ["15:00",   20.38,      0.00,           0.5,            "COSY_PM",      5,                0],
-    ["15:30",   20.38,      0.00,           0.5,            "COSY_PM",      5,                0],
-    ["16:00",   54.36,      0.00,           0.3,            "ECO",          5,                0],
-    ["16:30",   54.36,      0.00,           0.3,            "ECO",          5,                0],
-    ["17:00",   54.36,      0.00,           1.0,            "ECO",          5,                0],
-    ["17:30",   54.36,      0.00,           1.0,            "ECO",          5,                0],
-    ["18:00",   54.36,      0.00,           1.5,            "ECO",          5,                0],
-    ["18:30",   54.36,      0.00,           1.5,            "ECO",          5,                0],
-    ["19:00",   33.97,      0.00,           1.0,            "ECO",          5,                0],
-    ["19:30",   33.97,      0.00,           1.0,            "ECO",          5,                0],
-    ["20:00",   33.97,      0.00,           0.6,            "ECO",          5,                0],
-    ["20:30",   33.97,      0.00,           0.6,            "ECO",          5,                0],
-    ["21:00",   33.97,      0.00,           0.5,            "ECO",          5,                0],
-    ["21:30",   33.97,      0.00,           0.5,            "ECO",          5,                0],
-    ["22:00",   33.97,      0.00,           0.5,            "ECO",          5,                0],
-    ["22:30",   33.97,      0.00,           0.5,            "ECO",          5,                0],
-    ["23:00",   33.97,      0.00,           0.3,            "ECO",          5,                0],
-    ["23:30",   33.97,      0.00,           0.3,            "ECO",          5,                0],
-    ]
-
-# Test template - runs through all modes
-#   ["Time",   "Imp Cost", "Exp Price",    "Load (kWh)",    "Mode",        "Reserve",      "Target SoC"],
-    sched_test = [
-    ["00:00",   13.0,        0.00,           0.3,            "ECO",         5,                0],
-    ["00:30",   5.0,         0.00,           0.3,            "GO_TGT",      5,                0],
-    ["01:00",   5.0,         0.00,           2.0,            "GO_TGT",      5,               50],
-    ["01:30",   5.0,         0.00,           2.0,            "TARGET",      5,               50],
-    ["02:00",   5.0,         0.00,           0.3,            "TARGET",      5,               50],
-    ["02:30",   5.0,         0.00,           0.3,            "GO_TGT",      5,               75],
-    ["03:00",   5.0,         0.00,           0.3,            "ECO",         5,               20],
-    ["03:30",   5.0,         0.00,           0.3,            "CHARGE",      5,              100],
-    ["04:00",   5.0,         0.00,           0.3,            "IMPORT",      5,              100],
-    ["04:30",   13.0,        0.00,           0.3,            "TARGET",      5,              100],
-    ["05:00",   13.0,        0.00,           0.5,            "HOLD",        5,                0],
-    ["05:30",   13.0,        0.00,           0.5,            "HOLD",        5,                0],
-    ["06:00",   13.0,        0.00,           1.7,            "EXPORT",      5,                0],
-    ["06:30",   33.97,       0.00,           1.7,            "HOLD",        5,                0],
-    ["07:00",   33.97,       0.00,           1.8,            "ECO",         5,                0],
-    ["07:30",   33.97,       0.00,           1.8,            "ECO",         5,                0],
-    ["08:00",   33.97,       0.00,           2.6,            "ECO",         5,                0],
-    ["08:30",   33.97,       0.00,           2.6,            "ECO",         5,                0],
-    ["09:00",   33.97,       0.00,           1.5,            "ECO",         5,                0],
-    ["09:30",   33.97,       0.00,           1.5,            "DISCHARGE",   5,                0],
-    ["10:00",   33.97,       0.00,           0.5,            "ECO",         5,                0],
-    ["10:30",   33.97,       0.00,           0.5,            "HOLD",        5,                0],
-    ["11:00",   33.97,       0.00,           2.5,            "CHARGE",      5,                0],
-    ["11:30",   33.97,       0.00,           2.5,            "ECO",         5,                0],
-    ["12:00",   33.97,       0.00,           1.3,            "TARGET",      5,              100],
-    ["12:30",   33.97,       0.00,           1.3,            "ECO",         5,                0],
-    ["13:00",   20.38,       0.00,           1.0,            "COSY_PM",     5,                0],
-    ["13:30",   20.38,       0.00,           1.0,            "COSY_PM",     5,                0],
-    ["14:00",   20.38,       0.00,           1.5,            "HOLD",        5,                0],
-    ["14:30",   20.38,       0.00,           1.5,            "COSY_PM",     5,                0],
-    ["15:00",   20.38,       0.00,           0.5,            "CHARGE",      5,                0],
-    ["15:30",   20.38,       0.00,           0.5,            "GO_TGT",      5,                0],
-    ["16:00",   54.36,       0.00,           0.3,            "ECO",         5,                0],
-    ["16:30",   54.36,       0.00,           0.3,            "IMPORT",     50,                0],
-    ["17:00",   54.36,       0.00,           1.0,            "ECO",         5,                0],
-    ["17:30",   54.36,       0.00,           1.0,            "DISCHARGE",   5,                0],
-    ["18:00",   54.36,       0.00,           1.5,            "DISCHARGE",   5,                0],
-    ["18:30",   54.36,       0.00,           1.5,            "HOLD",        5,                0],
-    ["19:00",   33.97,       0.00,           1.0,            "IMPORT",      5,                0],
-    ["19:30",   33.97,       0.00,           1.0,            "CHARGE",      5,                0],
-    ["20:00",   33.97,       0.00,           0.6,            "CHARGE",      5,                0],
-    ["20:30",   33.97,       0.00,           0.6,            "HOLD",        5,                0],
-    ["21:00",   33.97,       0.00,           0.5,            "DISCHARGE",   5,                0],
-    ["21:30",   33.97,       0.00,           0.5,            "EXPORT",      5,                0],
-    ["22:00",   33.97,       0.00,           0.5,            "EXPORT",      5,                0],
-    ["22:30",   33.97,       0.00,           0.5,            "ECO",         5,                0],
-    ["23:00",   33.97,       0.00,           0.3,            "ECO",         5,                0],
-    ["23:30",   33.97,       0.00,           0.3,            "ECO",         5,                0],
-    ]
-
-    # EDIT THIS LINE to select the appropriate schedule from above entries
-    sched = sched_test
-
-
+# MiHome devices are used to activate various loads
 class MiHome:
-    """User settings for MiHome devices to activate various loads"""
     enable = True
     url = "https://mihome4u.co.uk/api/v1/subdevices/"
-    UserID = ""
-    key = ""
+    UserID = "XXXX"
+    key = "XXXX"
 
 # This section defines the various loads and operating parameters
 LOAD_CONFIG = {
@@ -360,44 +106,27 @@ LOAD_CONFIG = {
         "Lights2",
         "Lights3",
         "Lights4",
-        "Load3",
         "Load1",
-        "Load1a",
         "Load2"
     ],
     "Load1": {
         "DeviceName"    :       "Towel Rails",
-        "DeviceID"      :       "",
+        "DeviceID"      :       "182182",
         "EarlyStart"    :       "10:00",
         "LateStart"     :       "14:00",
-        "FinishTime"    :       "15:00",
+        "FinishTime"    :       "16:00",
         "MinOnTime"     :        5,
         "MinDailyTarget":        0,
         "MaxDailyTarget":        60,
         "MaxCO2"        :        200,
         "MaxTemp"       :        20,
         "PwrLoad"       :        800,
-        "PwrStart"      :        750,
-        "Hysteresis"    :        250
-    },
-    "Load1a": {
-        "DeviceName"    :       "Towel Rails",
-        "DeviceID"      :       "",
-        "EarlyStart"    :       "03:45",
-        "LateStart"     :       "03:45",
-        "FinishTime"    :       "04:30",
-        "MinOnTime"     :        45,
-        "MinDailyTarget":        45,
-        "MaxDailyTarget":        45,
-        "MaxCO2"        :        150,
-        "MaxTemp"       :        10,
-        "PwrLoad"       :        800,
-        "PwrStart"      :        0,
+        "PwrStart"      :        500,
         "Hysteresis"    :        250
     },
     "Load2": {
         "DeviceName"    :       "Battery Charger",
-        "DeviceID"      :       "",
+        "DeviceID"      :       "249595",
         "EarlyStart"    :       "09:00",
         "LateStart"     :       "15:00",
         "FinishTime"    :       "16:00",
@@ -410,24 +139,9 @@ LOAD_CONFIG = {
         "PwrStart"      :        30,
         "Hysteresis"    :        50
     },
-    "Load3": {
-        "DeviceName"    :       "LEAF 2kW",
-        "DeviceID"      :       "",
-        "EarlyStart"    :       "09:00",
-        "LateStart"     :       "15:00",
-        "FinishTime"    :       "16:00",
-        "MinOnTime"     :        20,
-        "MinDailyTarget":        0,
-        "MaxDailyTarget":        420,
-        "MaxCO2"        :        400,
-        "MaxTemp"       :        30,
-        "PwrLoad"       :        2000,
-        "PwrStart"      :        1500,
-        "Hysteresis"    :        750
-    },
     "Lights1": {
         "DeviceName"    :       "Lights - Hall",
-        "DeviceID"      :       "",
+        "DeviceID"      :       "176890",
         "EarlyStart"    :       "VSunset",
         "LateStart"     :       "VSunset",
         "FinishTime"    :       "22:00",
@@ -442,7 +156,7 @@ LOAD_CONFIG = {
     },
     "Lights2": {
         "DeviceName"    :       "Lights - Standard Lamp",
-        "DeviceID"      :       "",
+        "DeviceID"      :       "176922",
         "EarlyStart"    :       "VSunset",
         "LateStart"     :       "VSunset",
         "FinishTime"    :       "22:45",
@@ -457,7 +171,7 @@ LOAD_CONFIG = {
     },
     "Lights3": {
         "DeviceName"    :        "Lights - Lounge Table Lamp",
-        "DeviceID"      :        "",
+        "DeviceID"      :        "221403",
         "EarlyStart"    :        "VSunset",
         "LateStart"     :        "VSunset",
         "FinishTime"    :        "23:59",
@@ -472,7 +186,7 @@ LOAD_CONFIG = {
     },
     "Lights4": {
         "DeviceName"    :        "Christmas Lights",
-        "DeviceID"      :        "",
+        "DeviceID"      :        "234342",
         "EarlyStart"    :        "VSunset",
         "LateStart"     :        "VSunset",
         "FinishTime"    :        "22:35",
@@ -484,5 +198,121 @@ LOAD_CONFIG = {
         "PwrLoad"       :        10,
         "PwrStart"      :        0,
         "Hysteresis"    :        0
+    },
+    "LEAF": {
+        "DeviceName"    :       "LEAF",
+        "DeviceID"      :       "177842",
+        "EarlyStart"    :       "Sunrise",
+        "LateStart"     :       "23:59",
+        "MinCO2"        :        90,
+        "GenRatio"      :        10,
+        "PwrLoad"       :        7000,
+        "PwrStart"      :        1000
     }
+}
+
+
+GE_Command_list = {
+    "data": [
+        {
+            "id": 17,
+            "name": "Enable AC Charge Upper % Limit",
+            "validation": "Value must be either true or false"
+        },
+        {
+            "id": 24,
+            "name": "Enable Eco Mode",
+            "validation": "Value must be either true or false"
+        },
+        {
+            "id": 28,
+            "name": "AC Charge 2 Start Time",
+            "validation": "Value format should be HH:mm. Use correct time range for hour and minutes"
+        },
+        {
+            "id": 29,
+            "name": "AC Charge 2 End Time",
+            "validation": "Value format should be HH:mm. Use correct time range for hour and minutes"
+        },
+        {
+            "id": 41,
+            "name": "DC Discharge 2 Start Time",
+            "validation": "Value format should be HH:mm. Use correct time range for hour and minutes"
+        },
+        {
+            "id": 42,
+            "name": "DC Discharge 2 End Time",
+            "validation": "Value format should be HH:mm. Use correct time range for hour and minutes"
+        },
+        {
+            "id": 47,
+            "name": "Inverter Max Output Active Power Percent",
+            "validation": "Value must be between 0 and 100"
+        },
+        {
+            "id": 53,
+            "name": "DC Discharge 1 Start Time",
+            "validation": "Value format should be HH:mm. Use correct time range for hour and minutes"
+        },
+        {
+            "id": 54,
+            "name": "DC Discharge 1 End Time",
+            "validation": "Value format should be HH:mm. Use correct time range for hour and minutes"
+        },
+        {
+            "id": 56,
+            "name": "Enable DC Discharge",
+            "validation": "Value must be either true or false"
+        },
+        {
+            "id": 64,
+            "name": "AC Charge 1 Start Time",
+            "validation": "Value format should be HH:mm. Use correct time range for hour and minutes"
+        },
+        {
+            "id": 65,
+            "name": "AC Charge 1 End Time",
+            "validation": "Value format should be HH:mm. Use correct time range for hour and minutes"
+        },
+        {
+            "id": 66,
+            "name": "AC Charge Enable",
+            "validation": "Value must be either true or false"
+        },
+        {
+            "id": 71,
+            "name": "Battery Reserve % Limit",
+            "validation": "Value must be between 4 and 100"
+        },
+        {
+            "id": 72,
+            "name": "Battery Charge Power",
+            "validation": "Value must be between 0 and 3000"
+        },
+        {
+            "id": 73,
+            "name": "Battery Discharge Power",
+            "validation": "Value must be between 0 and 3000"
+        },
+        {
+            "id": 75,
+            "name": "Battery Cutoff % Limit",
+            "validation": "Value must be between 4 and 100"
+        },
+        {
+            "id": 77,
+            "name": "AC Charge Upper % Limit",
+            "validation": "Value must be between 0 and 100"
+        },
+        {
+            "id": 83,
+            "name": "Restart Inverter",
+            "validation": "Value can only be 100"
+        },
+        {
+            "id": 258,
+            "name": "Force Off Grid",
+            "validation": "Value must be either true or false"
+        }
+    ]
 }
