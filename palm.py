@@ -50,8 +50,9 @@ import settings as stgs
 # v0.8.4c   01/Jan/23 General tidy up
 # v0.8.4d   09/Jan/23 Updated GivEnergyObj to download & validate inverter commands
 # v0.8.5    04/May/23 Fixed midnight rollover issue in SoC calculation timing
+# v0.8.6    28/May/23 Merged various changes. added ONCE_MODE
 
-PALM_VERSION = "v0.8.5"
+PALM_VERSION = "v0.8.6"
 # -*- coding: utf-8 -*-
 
 class GivEnergyObj:
@@ -87,29 +88,10 @@ class GivEnergyObj:
         self.soc: int = 0
         self.base_load = stgs.GE.base_load
         self.tgt_soc = 100
-
-        #  Download commands which are valid for inverter
-        url = stgs.GE.url + "settings"
-        key = "Bearer " + stgs.GE.key
-
-        payload = {}
-        headers = {
-                'Authorization': key,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-                }
-
-        try:
-            response = requests.request('GET', url, headers=headers, json=payload)
-        except requests.exceptions.RequestException as error:
-            print(error)
-            return
-
-        self.cmd_list = json.loads(response.content.decode('utf-8'))['data']
+        self.cmd_list = stgs.GE_Command_list['data']
 
         if DEBUG_MODE:
-            print("Inverter command list donwloaded")
-            print("Valid commands:")
+            print("Valid inverter commands:")
             for line in self.cmd_list:
                 print(line['id'], " - ", line['name'])
             print("")
@@ -117,7 +99,7 @@ class GivEnergyObj:
     def get_latest_data(self):
         """Download latest data from GivEnergy."""
 
-        utc_timenow_mins = time_to_mins(time.strftime("%H:%M:%S", time.gmtime()))
+        utc_timenow_mins = t_to_mins(time.strftime("%H:%M:%S", time.gmtime()))
         if (utc_timenow_mins > self.read_time_mins + 5 or
             utc_timenow_mins < self.read_time_mins):  # Update every 5 minutes plus day rollover
 
@@ -144,7 +126,7 @@ class GivEnergyObj:
                             self.sys_status[index] = \
                                 json.loads(resp.content.decode('utf-8'))['data']
                         except Exception:
-                            print("Error reading GivEnergy system status ", TIME_NOW_VAR)
+                            print("Error reading GivEnergy system status ", T_NOW_VAR)
                             print(resp.content)
                             self.sys_status[index] = self.sys_status[index + 1]
                 if LOOP_COUNTER_VAR == 0:  # Pack array on startup
@@ -152,7 +134,7 @@ class GivEnergyObj:
                     while index < 5:
                         self.sys_status[index] = self.sys_status[0]
                         index += 1
-                self.read_time_mins = time_to_mins(self.sys_status[0]['time'][11:])
+                self.read_time_mins = t_to_mins(self.sys_status[0]['time'][11:])
                 self.line_voltage = float(self.sys_status[0]['grid']['voltage'])
                 self.grid_power = -1 * int(self.sys_status[0]['grid']['power'])  # -ve = export
                 self.pv_power = int(self.sys_status[0]['solar']['power'])
@@ -176,7 +158,7 @@ class GivEnergyObj:
                             self.meter_status[index] = \
                                 json.loads(resp.content.decode('utf-8'))['data']
                         except Exception:
-                            print("Error reading GivEnergy meter status ", TIME_NOW_VAR)
+                            print("Error reading GivEnergy meter status ", T_NOW_VAR)
                             print(resp.content)
                             self.meter_status[index] = self.meter_status[index + 1]
                 if LOOP_COUNTER_VAR == 0:  # Pack array on startup
@@ -193,7 +175,7 @@ class GivEnergyObj:
     def get_load_hist(self):
         """Download historical consumption data from GivEnergy and pack array for next SoC calc"""
 
-        day_delta = 0 if (TIME_NOW_MINS_VAR > 1430) else 1  # Use latest full day
+        day_delta = 0 if (T_NOW_MINS_VAR > 1430) else 1  # Use latest full day
         day = datetime.strftime(datetime.now() - timedelta(day_delta), '%Y-%m-%d')
         url = stgs.GE.url + "data-points/" + day
         key = stgs.GE.key
@@ -238,47 +220,46 @@ class GivEnergyObj:
         def set_inverter_register(register: str, value: str):
             """Exactly as it says"""
 
-            result = True  # Remove this check as it throws an error if network down on startup
-            # result = False
-            # for line in self.cmd_list:
-            #     if line['id'] == int(register):
-            #         cmd_name = line['name']
-            #         result = True
-            #         break
+            # Removed check as it can throw errors if network down on startup
             cmd_name = ""
+            for line in self.cmd_list:
+                if line['id'] == int(register):
+                    cmd_name = line['name']
+                    break
 
-            if result:
-                url = stgs.GE.url + "settings/" + register + "/write"
-                key = stgs.GE.key
-                headers = {
-                    'Authorization': 'Bearer  ' + key,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                }
-                payload = {
-                    'value': value
-                }
-                resp = ""
-                if not TEST_MODE:
-                    try:
-                        resp = requests.request('POST', url, headers=headers, json=payload)
-                    except requests.exceptions.RequestException as error:
-                        print(error)
-                        return
-                print("Info; Setting Register ", register, " (", cmd_name, ") to ", value, ", \
-                      Response:", resp, sep='')
-            else:
-                print("Error: write to invalid inverter register: ", register)
+            url = stgs.GE.url + "settings/" + register + "/write"
+            key = stgs.GE.key
+            headers = {
+                'Authorization': 'Bearer  ' + key,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+            payload = {
+                'value': value
+            }
+            resp = ""
+            if not TEST_MODE:
+                try:
+                    resp = requests.request('POST', url, headers=headers, json=payload)
+                except requests.exceptions.RequestException as error:
+                    print(error)
+                    return
+            print("Info; Setting Register ", register, " (", cmd_name, ") to ", value, ", \
+                    Response:", resp, sep='')
 
         if cmd == "set_soc":  # Sets target SoC to value
             set_inverter_register("77", arg[0])
-            set_inverter_register("64", stgs.GE.start_time) if stgs.GE.start_time != ""
-            set_inverter_register("65", stgs.GE.end_time) if stgs.GE.end_time != ""
+            if stgs.GE.start_time != "":
+                set_inverter_register("64", stgs.GE.start_time)
+            if stgs.GE.end_time != "":
+                set_inverter_register("65", stgs.GE.end_time)
 
         elif cmd == "set_soc_winter":  # Restore default overnight charge params
             set_inverter_register("77", "100")
-            set_inverter_register("64", stgs.GE.start_time) if stgs.GE.start_time != ""
-            set_inverter_register("65", stgs.GE.end_time_winter) if stgs.GE.end_time_winter != ""
+            if stgs.GE.start_time != "":
+                set_inverter_register("64", stgs.GE.start_time)
+            if stgs.GE.end_time_winter != "":
+                set_inverter_register("65", stgs.GE.end_time_winter)
 
         elif cmd == "charge_now":
             set_inverter_register("77", "100")
@@ -299,10 +280,18 @@ class GivEnergyObj:
     def compute_tgt_soc(self, gen_fcast, weight: int, commit: bool):
         """Compute tomorrow's overnight SoC target"""
 
-        batt_max_charge: float = stgs.GE.batt_max_charge
+        # Winter months = 100%
+        if MNTH_VAR in stgs.GE.winter and commit:  # No need for sums...
+            print("info; winter month, SoC set to 100%")
+            self.set_mode("set_soc_winter")
+            return
+
+        # Solcast provides 3 estimates (P10, P50 and P90). Compute individual weighting
+        # factors for each of the 3 estimates from the weight input parameter, using a
+        # triangular approximation for simplicity
 
         weight = min(max(weight,10),90)  # Range check
-        wgt_10 = max(0, 50 - weight)  # Triangular approximation to Solcast normal distrbution
+        wgt_10 = max(0, 50 - weight)
         if weight > 50:
             wgt_50 = 90 - weight
         else:
@@ -310,60 +299,76 @@ class GivEnergyObj:
         wgt_90 = max(0, weight - 50)
 
         tgt_soc = 100
-        if gen_fcast.pv_est50_day[0] > 0:
-            if MONTH_VAR in stgs.GE.winter and commit:  # No need for sums...
-                print("info; winter month, SoC set to 100%")
-                self.set_mode("set_soc_winter")
-                return
+        if gen_fcast.pv_est50_day[0] > 0:  # Quick check for valid generation data
 
-            #  Step through forecast generation and consumption for coming day to identify
-            #  lowest minimum before overcharge and maximum overcharge. If there is overcharge
-            #  and the first min is above zero, reduce overnight charge for min export.
+            # The clever bit:
+            # Start with a battery at 100%. For each hour of the coming day, calculate the
+            # battery charge based on forecast generation and historical usage. Capture values for
+            # maximum charge and also the minimum charge value at any time before the maximum.
 
+            batt_max_charge: float = stgs.GE.batt_max_charge
             batt_charge: float = [0] * 24
             batt_charge[0] = batt_max_charge
             max_charge = 0
             min_charge = batt_max_charge
 
-            print()
+            print("")
             print("{:<20} {:>10} {:>10} {:>10}  {:>10} {:>10}".format("Info; SoC Calcs;",
                 "Hour", "Charge", "Cons", "Gen", "SoC"))
 
+            if stgs.GE.end_time != "":
+                end_charge_period = int(stgs.GE.end_time[0:2])
+            else:
+                end_charge_period = 4
+
             index = 0
+            est_gen = 0
             while index < 24:
-                if index < 5:  # Battery is in AC Charge mode
+                if index <= end_charge_period:  # Battery is in AC Charge mode
                     total_load = 0
                 else:
                     total_load = ge.base_load[index]
-                est_gen = (gen_fcast.pv_est10_hrly[index] * wgt_10 +
-                    gen_fcast.pv_est50_hrly[index] * wgt_50 +
-                    gen_fcast.pv_est90_hrly[index] * wgt_90) / (wgt_10 + wgt_50 + wgt_90)
+
                 if index > 0:
+                    # Generation is in GMT, add an hour for BST
+                    est_gen = (gen_fcast.pv_est10_hrly[index - 1] * wgt_10 +
+                        gen_fcast.pv_est50_hrly[index - 1] * wgt_50 +
+                        gen_fcast.pv_est90_hrly[index - 1] * wgt_90) / (wgt_10 + wgt_50 + wgt_90)
+
                     batt_charge[index] = (batt_charge[index - 1] +
                         max(-1 * stgs.GE.charge_rate,
                             min(stgs.GE.charge_rate, est_gen - total_load)))
-                    # Capture min charge on lowest down-slope before charge exceeds 100%
+                    # Capture min charge on lowest down-slope before charge exceeds 100% append
+                    # max xharge if on an up slope after overnight charge
                     if (batt_charge[index] <= batt_charge[index - 1] and
                         max_charge < batt_max_charge):
                         min_charge = min(min_charge, batt_charge[index])
-                    elif index > 4:  # Charging after overnight boost
+                    elif index > end_charge_period:  # Charging after overnight boost
                         max_charge = max(max_charge, batt_charge[index])
+
                 print("{:<20} {:>10} {:>10} {:>10}  {:>10} {:>10}".format("Info; SoC Calc;",
-                    index, round(batt_charge[index], 2), round(total_load, 2),
+                    t_to_hrs(index * 60), round(batt_charge[index], 2), round(total_load, 2),
                     round(est_gen, 2), int(100 * batt_charge[index] / batt_max_charge)))
+
                 index += 1
 
             max_charge_pcnt = int(100 * max_charge / batt_max_charge)
             min_charge_pcnt = int(100 * min_charge / batt_max_charge)
 
-            #  Reduce nightly charge to capture max export
-            if MONTH_VAR in stgs.GE.shoulder:
-                tgt_soc = max(stgs.GE.max_soc_target, 100 - min_charge_pcnt,
-                                200 - max_charge_pcnt)
+            # low_soc is the minimum SoC target. Provide more buffer capacity in shoulder months
+            if MNTH_VAR in stgs.GE.shoulder:
+                low_soc = stgs.GE.max_soc_target
             else:
-                tgt_soc = max(stgs.GE.min_soc_target, 100 - min_charge_pcnt,
-                                200 - max_charge_pcnt)
-            tgt_soc = int(min(max(tgt_soc, 0), 100))  # Limit range
+                low_soc = stgs.GE.min_soc_target
+
+            # The really clever bit is just two lines:
+            # Reduce the target SoC to the greater of:
+            #     The surplus above 100% for max_charge_pcnt
+            #     The spare capacity in the battery before the maximum charge point
+            #     The preset minimum value
+            # Range check the resulting value
+            tgt_soc = max(200 - max_charge_pcnt, 100 - min_charge_pcnt, low_soc)
+            tgt_soc = int(min(tgt_soc, 100))  # Limit range to 100%
 
             print()
             print("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("Info; SoC Calc Summary;",
@@ -378,7 +383,7 @@ class GivEnergyObj:
         else:
             print("Info; Incomplete Solcast data, setting target SoC to 100%")
 
-        print("Info; SoC Summary; ", LONG_TIME_NOW_VAR, "; Tom Fcast Gen (kWh); ",
+        print("Info; SoC Summary; ", LONG_T_NOW_VAR, "; Tom Fcast Gen (kWh); ",
             gen_fcast.pv_est10_day[0], ";", gen_fcast.pv_est50_day[0], ";",
             gen_fcast.pv_est90_day[0], "; SoC Target (%); ", tgt_soc,
             "; Today Gen (kWh); ", round(self.pv_energy) / 1000, 2)
@@ -425,7 +430,7 @@ class LoadObj:
                 out_time = env_obj.virt_ss_time
             else:
                 out_time = in_time
-            out_time_mins = time_to_mins(out_time)
+            out_time_mins = t_to_mins(out_time)
             return out_time_mins
 
         self.early_start_mins = lookup_time_mins(self.load_record["EarlyStart"])
@@ -468,7 +473,7 @@ class LoadObj:
             self.parse_sr_ss()
 
         self.prev_state = self.curr_state
-        if TIME_NOW_MINS_VAR == 0:
+        if T_NOW_MINS_VAR == 0:
             self.eti = 0
 
         if self.curr_state == "ON":
@@ -479,13 +484,13 @@ class LoadObj:
 
         # Does schedule sit within a single day?
         if self.finish_time_mins >= self.early_start_mins:
-            valid_time = self.early_start_mins <= TIME_NOW_MINS_VAR < self.finish_time_mins
+            valid_time = self.early_start_mins <= T_NOW_MINS_VAR < self.finish_time_mins
         else:
-            valid_time = (self.early_start_mins <= TIME_NOW_MINS_VAR or
-                TIME_NOW_MINS_VAR < self.finish_time_mins)
+            valid_time = (self.early_start_mins <= T_NOW_MINS_VAR or
+                T_NOW_MINS_VAR < self.finish_time_mins)
 
         # Force a start if load has timed-out with run time below its daily target
-        late_start_active = (self.late_start_mins < TIME_NOW_MINS_VAR and
+        late_start_active = (self.late_start_mins < T_NOW_MINS_VAR and
             self.eti < self.load_record["MinDailyTarget"])
 
         # Detect if load has just been turned on and still needs to achieve its minimum on time
@@ -587,7 +592,7 @@ class SolcastObj:
             index += 1
 
         index = 0
-        if solcast_offset > 720:  # Forget obout current day
+        if solcast_offset > 720:  # Forget about current day
             offset = 1440 - 90
         else:
             offset = 0
@@ -669,6 +674,8 @@ class EnvObj:
                 co2_intens_near += int(co2_intens_raw[index]['intensity']['forecast']) / 5
                 co2_intens_far += int(co2_intens_raw[index + 6]['intensity']['forecast']) / 5
                 index += 1
+            co2_intens_near = round(co2_intens_near, 0)
+            co2_intens_far = round(co2_intens_far, 0)
 
         except Exception as error:
             print("Warning: Problem calculating CO2 intensity trend:", error)
@@ -687,14 +694,14 @@ class EnvObj:
 
         new_virt_sr_ss = False
         pwr_threshold = stgs.PVData.PwrThreshold
-        if TIME_NOW_MINS_VAR < time_to_mins(env_obj.virt_sr_time):  # Gen started?
+        if T_NOW_MINS_VAR < t_to_mins(env_obj.virt_sr_time):  # Gen started?
             if (ge.sys_status[1]['solar']['power'] < pwr_threshold <
                 ge.sys_status[0]['solar']['power']):
                 new_virt_sr_ss = True
                 self.virt_sr_time = ge.sys_status[0]['time'][11:]
                 print('Info; VSunrise/set (Sunrise detected) VSR:',
                       env_obj.virt_sr_time, "VSS:", env_obj.virt_ss_time)
-        elif TIME_NOW_MINS_VAR > 900:  # It's afternoon, gen ended?
+        elif T_NOW_MINS_VAR > 900:  # It's afternoon, gen ended?
             if (ge.sys_status[0]['solar']['power'] < pwr_threshold and
                 (pwr_threshold < ge.sys_status[1]['solar']['power'] or LOOP_COUNTER_VAR < 10)):
                 new_virt_sr_ss = True
@@ -746,15 +753,15 @@ class EnvObj:
 
 # End of EnvObj() class definition
 
-def time_to_mins(time_in_hrs: str) -> int:
+def t_to_mins(time_in_hrs: str) -> int:
     """Convert times from HH:MM format to mins after midnight."""
 
     time_in_mins = 60 * int(time_in_hrs[0:2]) + int(time_in_hrs[3:5])
     return time_in_mins
 
-#  End of time_to_mins()
+#  End of t_to_mins()
 
-def time_to_hrs(time_in: int) -> str:
+def t_to_hrs(time_in: int) -> str:
     """Convert times from mins after midnight format to HH:MM."""
 
     hours = int(time_in // 60)
@@ -762,7 +769,7 @@ def time_to_hrs(time_in: int) -> str:
     time_in_hrs = '{:02d}{}{:02d}'.format(hours, ":", mins)
     return time_in_hrs
 
-#  End of time_to_hrs()
+#  End of t_to_hrs()
 
 def set_mihome_switch(device_id: str, turn_on: bool) -> bool:
     """Operates a MiHome switch on/off."""
@@ -841,12 +848,12 @@ def put_pv_output():
 
     time.sleep(2)  # PVOutput has a 1 second rate limit. Avoid any clashes
 
-    if not TEST_MODE and stgs.PVOutput.enable:
+    if not TEST_MODE:
         try:
             req = requests.get(url, params=payload, timeout=10)
             req.raise_for_status()
         except requests.exceptions.RequestException as error:
-            print("Warning; PVOutput Write Error ", LONG_TIME_NOW_VAR)
+            print("Warning; PVOutput Write Error ", LONG_T_NOW_VAR)
             print(error)
             print()
             return()
@@ -904,10 +911,14 @@ if __name__ == '__main__':
     print("Command line options (only one can be used):")
     print("-t | --test  | test mode (12x speed, no external server writes)")
     print("-d | --debug | debug mode, extra verbose")
+    print("-o | --once  | once mode, collects forecast, updates inverter SoC target and then exits")
+    print("")
 
     # Parse any command-line arguments
     TEST_MODE: bool = False
     DEBUG_MODE: bool = False
+    ONCE_MODE: bool = False
+
     if len(sys.argv) > 1:
         if str(sys.argv[1]) in ["-t", "--test"]:
             TEST_MODE = True
@@ -916,27 +927,31 @@ if __name__ == '__main__':
         elif str(sys.argv[1]) in ["-d", "--debug"]:
             DEBUG_MODE = True
             print("Info; Running in debug mode, extra verbose")
-
-    print("Info; Entering main loop...")
-    sys.stdout.flush()
+        elif str(sys.argv[1]) in ["-o", "--once"]:
+            ONCE_MODE = True
+            print("Info; Running in once mode, execute forecast and inverter SoC update, then exit")
 
     LOOP_COUNTER_VAR: int = 0  # 1 minute minor frame. "0" = initialise
     PVO_TSTAMP_VAR: int = 0  # Records value of LOOP_COUNTER_VAR when PV data last written
-    manual_hold = False  # Fix for inverter hunting after hitting SoC target
+    MANUAL_HOLD_VAR: bool = False  # Fix for inverter hunting after hitting SoC target
 
     while True:  # Main Loop
         # Current time definitions
-        LONG_TIME_NOW_VAR: str = time.strftime("%d-%m-%Y %H:%M:%S", time.localtime())
-        MONTH_VAR: str = LONG_TIME_NOW_VAR[3:5]
-        TIME_NOW_VAR: str = LONG_TIME_NOW_VAR[11:]
-        TIME_NOW_MINS_VAR: int = time_to_mins(TIME_NOW_VAR)
+        LONG_T_NOW_VAR: str = time.strftime("%d-%m-%Y %H:%M:%S", time.localtime())
+        MNTH_VAR: str = LONG_T_NOW_VAR[3:5]
+        T_NOW_VAR: str = LONG_T_NOW_VAR[11:]
+        T_NOW_MINS_VAR: int = t_to_mins(T_NOW_VAR)
 
         if LOOP_COUNTER_VAR == 0:  # Initialise
+            print("Info; Initialising at:", LONG_T_NOW_VAR)
+            print("")
+            sys.stdout.flush()
+
             # GivEnergy power object
             ge: GivEnergyObj = GivEnergyObj()
             time.sleep(10)
             ge.get_load_hist()
-            if MONTH_VAR in stgs.GE.winter:
+            if MNTH_VAR in stgs.GE.winter:
                 ge.set_mode("set_soc_winter")
             else:
                 ge.set_mode("set_soc","100")
@@ -948,96 +963,112 @@ if __name__ == '__main__':
             # Misc environmental data: weather, CO2, etc
             CO2_USAGE_VAR: int = 200
             env_obj: EnvObj = EnvObj()
-            env_obj.update_weather_curr()
-            env_obj.update_co2()
+            if stgs.CarbonIntensity.enable is True:
+                env_obj.update_co2()
+            if stgs.OpenWeatherMap.enable is True:
+                env_obj.update_weather_curr()
 
             # Create an object for each load
-            load_obj: List[LoadObj] = []
-            load_payload: List[str] = []
-            NUM_LOADS: int = len(stgs.LOAD_CONFIG['LoadPriorityOrder'])
-            for LOAD_INDEX_VAR in range(NUM_LOADS):
-                load_payload = stgs.LOAD_CONFIG[stgs.LOAD_CONFIG \
-                    ['LoadPriorityOrder'][LOAD_INDEX_VAR]]
-                load_obj.append(LoadObj(LOAD_INDEX_VAR, load_payload))
+            if ONCE_MODE is False and stgs.MiHome.enable is True:
+                load_obj: List[LoadObj] = []
+                load_payload: List[str] = []
+                NUM_LOADS: int = len(stgs.LOAD_CONFIG['LoadPriorityOrder'])
+                for LOAD_INDEX_VAR in range(NUM_LOADS):
+                    load_payload = stgs.LOAD_CONFIG[stgs.LOAD_CONFIG \
+                        ['LoadPriorityOrder'][LOAD_INDEX_VAR]]
+                    load_obj.append(LoadObj(LOAD_INDEX_VAR, load_payload))
 
         else:
             # Schedule activities at specific intervals
 
             # 5 minutes before off-peak start for next day's forecast
-            if (TEST_MODE and LOOP_COUNTER_VAR == 0) or \
-                TIME_NOW_MINS_VAR == (time_to_mins(stgs.GE.start_time) + 1435) % 1440:
+            if (TEST_MODE and LOOP_COUNTER_VAR == 1) or \
+                (ONCE_MODE is False and \
+                    T_NOW_MINS_VAR == (t_to_mins(stgs.GE.start_time) + 1435) % 1440):
                 try:
                     solcast.update()
                 except Exception:
                     print("Warning; Solcast download failure")
 
             # 2 minutes before off-peak start for setting overnight battery charging target
-            if (TEST_MODE and LOOP_COUNTER_VAR == 2) or \
-                TIME_NOW_MINS_VAR == (time_to_mins(stgs.GE.start_time) + 1438) % 1440:
+            if ((TEST_MODE or ONCE_MODE) and LOOP_COUNTER_VAR == 2) or \
+                T_NOW_MINS_VAR == (t_to_mins(stgs.GE.start_time) + 1438) % 1440:
                 # compute & set SoC target
                 try:
                     ge.get_load_hist()
-                    print("Info; 35% weighted forecast...")
-                    ge.compute_tgt_soc(solcast, 35, True)
+                    print("Info; forecast weighting %: ", stgs.Solcast.weight)
+                    ge.compute_tgt_soc(solcast, stgs.Solcast.weight, True)
                 except Exception:
                     print("Warning; unable to set SoC")
+
+                # if running in once mode, quit after inverter SoC update
+                if ONCE_MODE:
+                    sys.exit()
+
                 # Reset sunrise and sunset for next day
                 env_obj.reset_sr_ss()
 
-            # Pause/resume battery once charged to compensate for inverter bug
-            if not manual_hold and \
-                time_to_mins(stgs.GE.start_time) < TIME_NOW_MINS_VAR < time_to_mins(stgs.GE.end_time):
-                if -2 < (ge.soc - ge.tgt_soc) < 2:  # Within 2% of target avoids rounding errors
+            # Pause/resume battery once charged to compensate for AC3 inverter bug
+            if MANUAL_HOLD_VAR is False and \
+                t_to_mins(stgs.GE.start_time) < T_NOW_MINS_VAR < t_to_mins(stgs.GE.end_time):
+                if -2 < (ge.soc - ge.tgt_soc) < 2:  # Within 2% avoids rounding issues
                     ge.set_mode("pause")
-                    manual_hold = True
+                    MANUAL_HOLD_VAR = True
 
-            if MONTH_VAR not in stgs.GE.winter and TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.end_time) or \
-                MONTH_VAR in stgs.GE.winter and TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.end_time_winter):
+            if MNTH_VAR not in stgs.GE.winter and T_NOW_MINS_VAR == t_to_mins(stgs.GE.end_time) or \
+                MNTH_VAR in stgs.GE.winter and T_NOW_MINS_VAR == t_to_mins(stgs.GE.end_time_winter):
                 ge.set_mode("resume")
-                manual_hold = False
+                MANUAL_HOLD_VAR = False
 
             # Afternoon battery boost in winter months to load shift from peak period
-            if MONTH_VAR in stgs.GE.winter and \
-                time_to_mins(stgs.GE.boost_start) < time_to_mins(stgs.GE.boost_finish):
+            if MNTH_VAR in stgs.GE.winter and \
+                t_to_mins(stgs.GE.boost_start) < t_to_mins(stgs.GE.boost_finish):
 
-                if TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.boost_start) and env_obj.co2_high:
+                if T_NOW_MINS_VAR == t_to_mins(stgs.GE.boost_start) and \
+                    env_obj.co2_high:
                     print("info; Enabling afternoon battery boost")
                     ge.set_mode("charge_now")
-                if TIME_NOW_MINS_VAR == time_to_mins(stgs.GE.boost_finish):
+                if T_NOW_MINS_VAR == t_to_mins(stgs.GE.boost_finish):
                     ge.set_mode("set_soc_winter")
 
-            # Update carbon intensity every 15 mins as background task
-            if LOOP_COUNTER_VAR % 15 == 14:
-                do_get_carbon_intensity = threading.Thread(target=env_obj.update_co2())
-                do_get_carbon_intensity.daemon = True
-                do_get_carbon_intensity.start()
+            if ONCE_MODE is False:
+                # Update carbon intensity every 15 mins as background task
+                if stgs.CarbonIntensity.enable is True and LOOP_COUNTER_VAR % 15 == 14:
+                    do_get_carbon_intensity = threading.Thread(target=env_obj.update_co2())
+                    do_get_carbon_intensity.daemon = True
+                    do_get_carbon_intensity.start()
 
-            # Update weather every 15 mins as background task
-            if LOOP_COUNTER_VAR % 15 == 14:
-                do_get_weather = threading.Thread(target=env_obj.update_weather_curr())
-                do_get_weather.daemon = True
-                do_get_weather.start()
+                # Update weather every 15 mins as background task
+                if stgs.OpenWeatherMap.enable is True and LOOP_COUNTER_VAR % 15 == 14:
+                    do_get_weather = threading.Thread(target=env_obj.update_weather_curr())
+                    do_get_weather.daemon = True
+                    do_get_weather.start()
 
-            #  Refresh utilisation data from GivEnergy server. Check every minute
-            ge.get_latest_data()
-            CO2_USAGE_VAR = int(env_obj.co2_intensity * ge.grid_power / 1000)
+                #  Refresh utilisation data from GivEnergy server. Check every minute
+                ge.get_latest_data()
+                CO2_USAGE_VAR = int(env_obj.co2_intensity * ge.grid_power / 1000)
 
-            #  Turn loads on or off. Check every minute
-            do_balance_loads = threading.Thread(target=balance_loads())
-            do_balance_loads.daemon = True
-            do_balance_loads.start()
+                #  Turn loads on or off. Check every minute
+                if stgs.MiHome.enable is True:
+                    do_balance_loads = threading.Thread(target=balance_loads())
+                    do_balance_loads.daemon = True
+                    do_balance_loads.start()
 
-            # Publish data to PVOutput.org every 5 minutes (or 5 cycles as a catch-all)
-            if TEST_MODE or TIME_NOW_MINS_VAR % 5 == 3 or LOOP_COUNTER_VAR > PVO_TSTAMP_VAR + 4:
-                PVO_TSTAMP_VAR = LOOP_COUNTER_VAR
-                do_put_pv_output = threading.Thread(target=put_pv_output)
-                do_put_pv_output.daemon = True
-                do_put_pv_output.start()
+                # Publish data to PVOutput.org every 5 minutes (or 5 cycles as a catch-all)
+                if stgs.PVOutput.enable is True and \
+                    (TEST_MODE or \
+                    T_NOW_MINS_VAR % 5 == 3 or \
+                    LOOP_COUNTER_VAR > PVO_TSTAMP_VAR + 4):
+
+                    PVO_TSTAMP_VAR = LOOP_COUNTER_VAR
+                    do_put_pv_output = threading.Thread(target=put_pv_output)
+                    do_put_pv_output.daemon = True
+                    do_put_pv_output.start()
 
         LOOP_COUNTER_VAR += 1
 
-        if TIME_NOW_MINS_VAR == 0:  # Reset frame counter every 24 hours
-            ge.pv_energy = 0  # Avoids carry-over issues with PVOutput
+        if T_NOW_MINS_VAR == 0:  # Reset frame counter every 24 hours
+            ge.pv_energy = 0  # Reset daily to prevent carry-over issue with PVOutput
             ge.grid_energy = 0
             LOOP_COUNTER_VAR = 1
 
