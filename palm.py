@@ -54,8 +54,9 @@ import settings as stgs
 # v0.8.6    28/May/23 Merged various changes. added ONCE_MODE
 # v0.9.0    01/Jun/23 Moved to 30-minute SoC time-slices, auto-correct GMT/BST in Solcast data
 # v0.9.1    03/Jun/23 Added logging functionality
+# v0.9.2    08/Jun/23 Added single-array logic for Solcast from latest HA version of palm.py
 
-PALM_VERSION = "v0.9.1"
+PALM_VERSION = "v0.9.2"
 # -*- coding: utf-8 -*-
 # pylint: disable=logging-not-lazy
 # pylint: disable=consider-using-f-string
@@ -614,7 +615,11 @@ class SolcastObj:
         pv_est90 = [0] * 10080
 
         # v0.8.3b bugfix: Number of lines reduced by 1 in Solcast data
-        forecast_lines = min(len(solcast_data_1['forecasts']), len(solcast_data_2['forecasts'])) - 1
+        # v0.9.2 Re-align with HA variant for single PV array
+        if stgs.Solcast.url_sw != "":  # Two arrays are specified
+            forecast_lines = min(len(solcast_data_1['forecasts']), len(solcast_data_2['forecasts'])) - 1
+        else:
+            forecast_lines = len(solcast_data_1['forecasts']) - 1
         interval = int(solcast_data_1['forecasts'][0]['period'][2:4])
         solcast_offset = (60 * int(solcast_data_1['forecasts'][0]['period_end'][11:13]) +
             int(solcast_data_1['forecasts'][0]['period_end'][14:16]) - interval - 60)
@@ -627,14 +632,17 @@ class SolcastObj:
         i = solcast_offset
         cntr = 0
         while i < forecast_lines * interval:
-            pv_est10[i] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate10'] * 1000) +
-                int(solcast_data_2['forecasts'][cntr]['pv_estimate10'] * 1000))
-
-            pv_est50[i] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate'] * 1000) +
-                int(solcast_data_2['forecasts'][cntr]['pv_estimate'] * 1000))
-
-            pv_est90[i] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate90'] * 1000) +
-                int(solcast_data_2['forecasts'][cntr]['pv_estimate90'] * 1000))
+            if stgs.Solcast.url_sw != "":  # Two arrays are specified
+                pv_est10[i] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate10'] * 1000) +
+                    int(solcast_data_2['forecasts'][cntr]['pv_estimate10'] * 1000))
+                pv_est50[i] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate'] * 1000) +
+                    int(solcast_data_2['forecasts'][cntr]['pv_estimate'] * 1000))
+                pv_est90[i] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate90'] * 1000) +
+                    int(solcast_data_2['forecasts'][cntr]['pv_estimate90'] * 1000))
+            else:
+                pv_est10[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate10'] * 1000)
+                pv_est50[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate'] * 1000)
+                pv_est90[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate90'] * 1000)
 
             if i > 1 and i % interval == 0:
                 cntr += 1
