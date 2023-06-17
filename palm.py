@@ -199,7 +199,7 @@ class GivEnergyObj:
             logger.error(error)
             return
         if resp.status_code != 200:
-            logger.error("Invalid response: "+ resp.status_code)
+            logger.error("Invalid response: "+ int(resp.status_code))
             return
 
         if len(resp.content) > 100:
@@ -282,7 +282,7 @@ class GivEnergyObj:
                 logger.error(error)
                 return
             if resp.status_code != 201:
-                logger.error("Invalid response: "+ resp.status_code)
+                logger.error("Invalid response: "+ str(resp.status_code))
                 return
 
             returned_cmd = json.loads(resp.content.decode('utf-8'))['data']['value']
