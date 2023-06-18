@@ -199,7 +199,7 @@ class GivEnergyObj:
             logger.error(error)
             return
         if resp.status_code != 200:
-            logger.error("Invalid response: "+ int(resp.status_code))
+            logger.error("Invalid response: "+ str(resp.status_code))
             return
 
         if len(resp.content) > 100:
@@ -1140,7 +1140,7 @@ if __name__ == '__main__':
             ge.grid_energy = 0
             LOOP_COUNTER_VAR = 1
 
-        if TEST_MODE:  # Wait 5 seconds
+        if TEST_MODE or ONCE_MODE:  # Wait 5 seconds
             time.sleep(5)
         else:  # Sync to minute rollover on system clock
             CURRENT_MINUTE = int(time.strftime("%M", time.localtime()))
