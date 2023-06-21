@@ -1,5 +1,5 @@
-# version 2023.05.28
-# Settings file for use with palm.py
+# version 2023.06.21
+# Settings file for use with palm.py: 30-minute calculations (v0.9.0) and weightings for daily historical consumption (v0.10.0)
 
 # SolCast PV forecast generator. Two forecasts are obtained, one per array
 class Solcast:
@@ -76,8 +76,22 @@ class GE:
     charge_rate = 3
 
     # Default data for base load. Overwritten by actual data if available
-    base_load = [0.3, 2, 0.3, 0.3, 0.3, 0.5, 1.7, 1.8, 2.6, 1.5, 0.5, 2.5,\
-        1.3, 1, 1.5, 0.5, 0.3, 1, 1.5, 1, 0.6, 0.5, 0.5, 0.3]
+    base_load = [0.3, 2, 0.3, 0.3, 0.3, 0.5, 1.7, 1.8, 2.6, 1.5, 0.5, 2.5, 1.3, 1, 1.5, 0.5, 0.3, \
+                 1, 1.5, 1, 0.6, 0.5, 0.5, 0.3, 0.3, 2, 0.3, 0.3, 0.3, 0.5, 1.7, 1.8, 2.6, 1.5, \
+                 0.5, 2.5, 1.3, 1, 1.5, 0.5, 0.3, 1, 1.5, 1, 0.6, 0.5, 0.5, 0.3]
+
+    # Load history is a weighted average of actual load from previous days.
+    # Uncomment required settings or make your own using positive integers only. Examples:
+    # Most recent day only
+    # load_hist_weight = [1]
+    # 3-day average
+    load_hist_weight = [1, 1, 1]
+    # 7-day average
+    # load_hist_weight = [1, 1, 1, 1, 1, 1, 1]
+    # Same day last week - useful if, say, Monday is always wash-day
+    # load_hist_weight = [0, 0, 0, 0, 0, 0, 1]
+    # Weighted average (a more extreme example)
+    # load_hist_weight = [4, 2, 2, 1, 1, 1, 1]
 
     # Start time for Overnight Charge. If "" disables writing this inverter register
     start_time = "00:30"
