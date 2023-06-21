@@ -56,8 +56,9 @@ import settings as stgs
 # v0.9.1    03/Jun/23 Added logging functionality
 # v0.9.2    08/Jun/23 Added single-array logic for Solcast from latest HA version of palm.py
 # v0.9.3    18/Jun/23 Fixed significant bug in SoC calculation introduced in v0.9.2
+# v0.10.0   21/Jun/23 Added multi-day averaging for usage calcs
 
-PALM_VERSION = "v0.9.3"
+PALM_VERSION = "v0.10.0"
 # -*- coding: utf-8 -*-
 # pylint: disable=logging-not-lazy
 # pylint: disable=consider-using-f-string
@@ -180,47 +181,80 @@ class GivEnergyObj:
     def get_load_hist(self):
         """Download historical consumption data from GivEnergy and pack array for next SoC calc"""
 
-        day_delta = 0 if (T_NOW_MINS_VAR > 1430) else 1  # Use latest full day
-        day = datetime.strftime(datetime.now() - timedelta(day_delta), '%Y-%m-%d')
-        url = stgs.GE.url + "data-points/"+ day
-        key = stgs.GE.key
-        headers = {
-            'Authorization': 'Bearer  ' + key,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-        }
-        params = {
-            'page': '1',
-            'pageSize': '2000'
-        }
+        def get_load_hist_day(offset: int):
+            """Get load history for a single day"""
 
-        try:
-            resp = requests.request('GET', url, headers=headers, params=params)
-        except requests.exceptions.RequestException as error:
-            logger.error(error)
-            return
-        if resp.status_code != 200:
-            logger.error("Invalid response: "+ str(resp.status_code))
-            return
+            load_array = [0] * 48
+            day_delta = 0 if (T_NOW_MINS_VAR > 1260) else 1  # Use latest day if after 2100 hrs
+            day_delta += offset
+            day = datetime.strftime(datetime.now() - timedelta(day_delta), '%Y-%m-%d')
+            url = stgs.GE.url + "data-points/"+ day
+            key = stgs.GE.key
+            headers = {
+                'Authorization': 'Bearer  ' + key,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+            params = {
+                'page': '1',
+                'pageSize': '2000'
+            }
 
-        if len(resp.content) > 100:
-            history = json.loads(resp.content.decode('utf-8'))
-            i = 6
-            counter = 0
-            current_energy = prev_energy = 0
-            while i < 290:
-                try:
-                    current_energy = float(history['data'][i]['today']['consumption'])
-                except Exception:
-                    break
-                if counter == 0:
-                    self.base_load[counter] = round(current_energy, 1)
-                else:
-                    self.base_load[counter] = round(current_energy - prev_energy, 1)
-                counter += 1
-                prev_energy = current_energy
-                i += 6
-            logger.info("Load Calc Summary: "+ str(current_energy / 2)+ str(self.base_load))
+            try:
+                resp = requests.request('GET', url, headers=headers, params=params)
+            except requests.exceptions.RequestException as error:
+                logger.error(error)
+                return load_array
+            if resp.status_code != 200:
+                logger.error("Invalid response: "+ str(resp.status_code))
+                return load_array
+
+            if len(resp.content) > 100:
+                history = json.loads(resp.content.decode('utf-8'))
+                i = 6
+                counter = 0
+                current_energy = prev_energy = 0
+                while i < 290:
+                    try:
+                        current_energy = float(history['data'][i]['today']['consumption'])
+                    except Exception:
+                        break
+                    if counter == 0:
+                        load_array[counter] = round(current_energy, 1)
+                    else:
+                        load_array[counter] = round(current_energy - prev_energy, 1)
+                    counter += 1
+                    prev_energy = current_energy
+                    i += 6
+            return load_array
+
+        load_hist_array = [0] * 48
+        acc_load = [0] * 48
+        total_weight: int = 0
+
+        i: int = 0
+        while i < len(stgs.GE.load_hist_weight):
+            if stgs.GE.load_hist_weight[i] > 0:
+                logger.info("Processing load history for day -"+ str(i + 1))
+                load_hist_array = get_load_hist_day(i)
+                j = 0
+                while j < 48:
+                    acc_load[j] += load_hist_array[j] * stgs.GE.load_hist_weight[i]
+                    acc_load[j] = round(acc_load[j], 2)
+                    j += 1
+                total_weight += stgs.GE.load_hist_weight[i]
+                logger.debug(str(acc_load)+ " total weight: "+ str(total_weight))
+            else:
+                logger.info("Skipping load history for day -"+ str(i + 1)+ " (weight = 0)")
+            i += 1
+
+        # Calculate averages and write results
+        i = 0
+        while i < 48:
+            self.base_load[i] = round(acc_load[i]/total_weight, 1)
+            i += 1
+
+        logger.info("Load Calc Summary: "+ str(self.base_load))
 
     def set_mode(self, cmd: str, *arg: str):
         """Configures inverter operating mode"""
@@ -1019,7 +1053,8 @@ if __name__ == '__main__':
             # GivEnergy power object
             ge: GivEnergyObj = GivEnergyObj()
             time.sleep(10)
-            ge.get_load_hist()
+            # ge.get_load_hist()
+
             if MNTH_VAR in stgs.GE.winter:
                 ge.set_mode("set_soc_winter")
             else:
@@ -1027,7 +1062,7 @@ if __name__ == '__main__':
 
             # Solcast PV prediction object
             solcast: SolcastObj = SolcastObj()
-            solcast.update()
+            # solcast.update()
 
             # Misc environmental data: weather, CO2, etc
             CO2_USAGE_VAR: int = 200
@@ -1051,9 +1086,8 @@ if __name__ == '__main__':
             # Schedule activities at specific intervals
 
             # 5 minutes before off-peak start for next day's forecast
-            if (TEST_MODE and LOOP_COUNTER_VAR == 1) or \
-                (ONCE_MODE is False and \
-                    T_NOW_MINS_VAR == (t_to_mins(stgs.GE.start_time) + 1435) % 1440):
+            if ((TEST_MODE or ONCE_MODE) and LOOP_COUNTER_VAR == 1) or \
+                T_NOW_MINS_VAR == (t_to_mins(stgs.GE.start_time) + 1435) % 1440:
                 try:
                     solcast.update()
                 except Exception:
@@ -1151,3 +1185,4 @@ if __name__ == '__main__':
 
         sys.stdout.flush()
 # End of main
+
