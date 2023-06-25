@@ -4,7 +4,7 @@ PV Automated Load Manager
 This software forms the basis of a simple home automation system, using the following hardware:
 
 GivEnergy AC-coupled inverter with AC115 power monitoring on supply and local PV generation
-MiHome remote controlled switches for various loads, controlled via hub and API
+MiHome remote-controlled switches for various loads, controlled via hub and API
 
 It performs the following functions:
 
@@ -23,7 +23,7 @@ Use the command "palm.py -t" for test, drop the "-t" argument for the target val
 
 The conservativeness of the forecast works for me and is set at 35%. It can be altered by changing the "Solcast.weight" parameter in settings.py 
 
-INSTALLATION INSTRUCTIONS, INCLUDING HOW TO RUN AS A SERVICE ON RASPBERRY PI
+INSTALLATION INSTRUCTIONS FOR LINUX-BASED SYSTEMS, INCLUDING HOW TO RUN AS A SERVICE ON RASPBERRY PI
 1. Create local directories:
 
     $ mkdir /home/pi/palm
@@ -59,3 +59,12 @@ INSTALLATION INSTRUCTIONS, INCLUDING HOW TO RUN AS A SERVICE ON RASPBERRY PI
     This will run palm.py in the background and save date-coded logfiles to /home/pi/logs
     
  6. Enjoy!
+
+INSTALLATION INSTRUCTIONS FOR WINDOWS-BASED SYSTEMS
+1.    Install Python 3 from python.org. Palm.py works with versions of Python >= 3.9
+2.    Create a working directory
+3.    Download palm.py and settings.py to the working directory
+4.    Edit settings.py with your system details
+5.    Using a command window, navigate to the working directory and run palm.py, initially with the -t option to run in test mode
+6.    If there are any missing library dependencies from the Python install, these are added using the command "pip3 install [modulename]"
+
