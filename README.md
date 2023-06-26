@@ -60,18 +60,18 @@ INSTALLATION INSTRUCTIONS FOR LINUX-BASED SYSTEMS, INCLUDING HOW TO RUN AS A SER
     
  6. Enjoy!
 
-INSTALLATION INSTRUCTIONS FOR WINDOWS-BASED SYSTEMS Method 1 (simplest):
+INSTALLATION INSTRUCTIONS FOR WINDOWS-BASED SYSTEMS
+Method 1 (simplest):
+1.    Create a working directory
+2.    Download palm.exe and settings.py to the working directory
+3.    Edit settings.py with your system details
+4.    Using a command window, navigate to the working directory and run palm.exe, initially with the -t option to run in test mode
 
-Create a working directory
-Download palm.exe and settings.py to the working directory
-Edit settings.py with your system details
-Using a command window, navigate to the working directory and run palm.exe, initially with the -t option to run in test mode
 Method 2 (harder, but more versatile):
-
-Install Python 3 from python.org. Palm.py works with versions of Python >= 3.9
-Create a working directory
-Download palm.py and settings.py to the working directory
-Edit settings.py with your system details
-Using a command window, navigate to the working directory and run palm.py, initially with the -t option to run in test mode
-If there are any missing library dependencies from the Python install, these are added using the command "pip3 install [modulename]"
+1.    Install Python 3 from python.org. Palm.py works with versions of Python >= 3.9
+2.    Create a working directory
+3.    Download palm.py and settings.py to the working directory
+4.    Edit settings.py with your system details
+5.    Using a command window, navigate to the working directory and run palm.py, initially with the -t option to run in test mode
+6.    If there are any missing library dependencies from the Python install, these are added using the command "pip3 install [modulename]"
 
