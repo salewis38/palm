@@ -75,3 +75,23 @@ Method 2 (harder, but more versatile):
 5.    Using a command window, navigate to the working directory and run palm.py, initially with the -t option to run in test mode
 6.    If there are any missing library dependencies from the Python install, these are added using the command "pip3 install [modulename]"
 
+INSTALLATION INSTRUCTIONS FOR SYNOLOGY NAS (credits to BoffinBoy)
+
+Palm will not run natively on Synology as the installed version of python does not include the relevant packages. Running as a Docker container can help resolve this. A Dockerfile is provided to simplify the process.
+
+Please note, to make any changes to the image, i.e. updating the settings file, it is most reliable to create a new version of the image with a different name in step 5, otherwise you may find the running Containers don’t use the new version.
+
+1.    Extract palm to a directory on your Synology NAS, and edit the settings file as desired
+2.    Go to Control Panel > Terminal & SNMP > Enable SSH service
+3.    SSH into your Synology NAS
+4.    Navigate to the directory you have extracted palm to using: cd /volume1/your/palm-directory
+5.    Create a Docker image using: sudo docker build -t desired-image-name .
+6.    Once complete, depending on Synology version go to Docker or Container Manager and select the “Container” menu; the instructions below assume you have Container Manager, the menus are slightly different in Docker, but should still generally match the below
+7.    Click “Create” and I’m the Image field select the image you just created
+8.    Give the Container a name under “Container name”
+9.    Tick “Enable auto restart” if you want palm to load automatically when Synology reboots, or if it experiences an error - this is recommended for typical use
+10.    Under “Environment” add a new environment variable called TZ with value Europe/London (or your relevant timezone); this is important to ensure the Container is aware of daylight savings
+11.    Under “Execution Command” enter python3 palm.py (note: if you want to pass through any additional arguments you should enter them here as well, e.g. python3 palm.py -o if you want to have a version that you run once, when needed)
+12.    Complete the wizard, and the container should start running; you can look at the “Log” tab of the running container each day to check all has worked OK
+13.    Return to Control Panel > Terminal & SNMP > Disable SSH service; important to do this for security purposes
+
