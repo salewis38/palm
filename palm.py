@@ -57,8 +57,9 @@ import settings as stgs
 # v0.9.2    08/Jun/23 Added single-array logic for Solcast from latest HA version of palm.py
 # v0.9.3    18/Jun/23 Fixed significant bug in SoC calculation introduced in v0.9.2
 # v0.10.0   21/Jun/23 Added multi-day averaging for usage calcs
+# v0.10.0a  02/Jul/23 Removed superfluous inverter register initialisation in ONCE_MODE
 
-PALM_VERSION = "v0.10.0"
+PALM_VERSION = "v0.10.0a"
 # -*- coding: utf-8 -*-
 # pylint: disable=logging-not-lazy
 # pylint: disable=consider-using-f-string
@@ -595,7 +596,7 @@ class SolcastObj:
     def __init__(self):
         # Skeleton solcast summary array
         self.pv_est10_day: [int] = [0] * 7
-        self.pv_est50_day: [int] = [0] *  7
+        self.pv_est50_day: [int] = [0] * 7
         self.pv_est90_day: [int] = [0] * 7
 
         self.pv_est10_30: [int] = [0] * 48
@@ -1055,10 +1056,11 @@ if __name__ == '__main__':
             time.sleep(10)
             # ge.get_load_hist()
 
-            if MNTH_VAR in stgs.GE.winter:
-                ge.set_mode("set_soc_winter")
-            else:
-                ge.set_mode("set_soc","100")
+            if ONCE_MODE is False:
+                if MNTH_VAR in stgs.GE.winter:
+                    ge.set_mode("set_soc_winter")
+                else:
+                    ge.set_mode("set_soc","100")
 
             # Solcast PV prediction object
             solcast: SolcastObj = SolcastObj()
