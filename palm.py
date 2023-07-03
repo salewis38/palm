@@ -1121,7 +1121,7 @@ if __name__ == '__main__':
                     ge.set_mode("pause")
                     MANUAL_HOLD_VAR = True
 
-            if MANUAL_HOLD_VAR is True and
+            if MANUAL_HOLD_VAR is True and \
                 (MNTH_VAR not in stgs.GE.winter and T_NOW_MINS_VAR == t_to_mins(stgs.GE.end_time) or \
                 MNTH_VAR in stgs.GE.winter and T_NOW_MINS_VAR == t_to_mins(stgs.GE.end_time_winter) or \
                 (ge.soc - ge.tgt_soc) < -5):  # Resume charging if calibration has lowered SoC:
