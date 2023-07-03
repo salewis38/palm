@@ -58,8 +58,9 @@ import settings as stgs
 # v0.9.3    18/Jun/23 Fixed significant bug in SoC calculation introduced in v0.9.2
 # v0.10.0   21/Jun/23 Added multi-day averaging for usage calcs
 # v0.10.0a  02/Jul/23 Removed superfluous inverter register initialisation in ONCE_MODE
+# v0.10.0b  03/Jul/23 Resume charging if calibration has lowered SoC once target has been met
 
-PALM_VERSION = "v0.10.0a"
+PALM_VERSION = "v0.10.0b"
 # -*- coding: utf-8 -*-
 # pylint: disable=logging-not-lazy
 # pylint: disable=consider-using-f-string
@@ -1114,15 +1115,16 @@ if __name__ == '__main__':
                 env_obj.reset_sr_ss()
 
             # Pause/resume battery once charged to compensate for AC3 inverter bug
-            # First determine if battery SoC will be climbing or falling
             if MANUAL_HOLD_VAR is False and \
                 t_to_mins(stgs.GE.start_time) < T_NOW_MINS_VAR < t_to_mins(stgs.GE.end_time):
                 if -2 < (ge.soc - ge.tgt_soc) < 2:  # Within 2% avoids sampling issues
                     ge.set_mode("pause")
                     MANUAL_HOLD_VAR = True
 
-            if MNTH_VAR not in stgs.GE.winter and T_NOW_MINS_VAR == t_to_mins(stgs.GE.end_time) or \
-                MNTH_VAR in stgs.GE.winter and T_NOW_MINS_VAR == t_to_mins(stgs.GE.end_time_winter):
+            if MANUAL_HOLD_VAR is True and
+                (MNTH_VAR not in stgs.GE.winter and T_NOW_MINS_VAR == t_to_mins(stgs.GE.end_time) or \
+                MNTH_VAR in stgs.GE.winter and T_NOW_MINS_VAR == t_to_mins(stgs.GE.end_time_winter) or \
+                (ge.soc - ge.tgt_soc) < -5):  # Resume charging if calibration has lowered SoC:
                 ge.set_mode("resume")
                 MANUAL_HOLD_VAR = False
 
