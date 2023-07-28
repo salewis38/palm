@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 from typing import Tuple, List
 from urllib.parse import urlencode
 import logging
+import random
+## import matplotlib.pyplot as plt
 import requests
 import settings as stgs
 
@@ -45,22 +47,13 @@ import settings as stgs
 
 # Changelog:
 # v0.6.0    12/Feb/22 First cut at GivEnergy interface
-# v0.8.4    12/Dec/22 Added winter afternoon boost functionality
-# v0.8.4a   15/Dec/22 Tidy up GE commands
-# v0.8.4b   24/Dec/22 Winter boost conditional on CO2 intensity
-# v0.8.4c   01/Jan/23 General tidy up
-# v0.8.4d   09/Jan/23 Updated GivEnergyObj to download & validate inverter commands
-# v0.8.5    04/May/23 Fixed midnight rollover issue in SoC calculation timing
-# v0.8.6    28/May/23 Merged various changes. added ONCE_MODE
-# v0.9.0    01/Jun/23 Moved to 30-minute SoC time-slices, auto-correct GMT/BST in Solcast data
-# v0.9.1    03/Jun/23 Added logging functionality
-# v0.9.2    08/Jun/23 Added single-array logic for Solcast from latest HA version of palm.py
-# v0.9.3    18/Jun/23 Fixed significant bug in SoC calculation introduced in v0.9.2
+# ...
 # v0.10.0   21/Jun/23 Added multi-day averaging for usage calcs
-# v0.10.0a  02/Jul/23 Removed superfluous inverter register initialisation in ONCE_MODE
-# v0.10.0b  03/Jul/23 Resume charging if calibration has lowered SoC once target has been met
+# v1.0.0    15/Jul/23 Random start time, Solcast data correction, IO compatibility, 48-hour fcast
 
-PALM_VERSION = "v0.10.0b"
+# NOTE: To enable plot capability uncomment all lines begiinging with "##"
+
+PALM_VERSION = "v1.0.0"
 # -*- coding: utf-8 -*-
 # pylint: disable=logging-not-lazy
 # pylint: disable=consider-using-f-string
@@ -187,8 +180,7 @@ class GivEnergyObj:
             """Get load history for a single day"""
 
             load_array = [0] * 48
-            day_delta = 0 if (T_NOW_MINS_VAR > 1260) else 1  # Use latest day if after 2100 hrs
-            day_delta += offset
+            day_delta = offset if (T_NOW_MINS_VAR > 1260) else offset + 1  # Use latest day if >9pm
             day = datetime.strftime(datetime.now() - timedelta(day_delta), '%Y-%m-%d')
             url = stgs.GE.url + "data-points/"+ day
             key = stgs.GE.key
@@ -301,7 +293,7 @@ class GivEnergyObj:
             logger.info("Setting Register "+ str(register)+ " ("+ str(cmd_name) + ") to "+
                         str(value)+ "   Response: "+ str(resp))
 
-            time.sleep(3)
+            time.sleep(3)  # Allow data on GE servver to settle
 
             # Readback check
             url = stgs.GE.url + "settings/"+ register + "/read"
@@ -330,23 +322,25 @@ class GivEnergyObj:
                     str(value) + ", Read: "+ str(returned_cmd))
 
 
-        if cmd == "set_soc":  # Sets target SoC to value
+        if cmd == "set_soc":  # Sets target SoC to value, randomises start time to be grid friendly
             set_inverter_register("77", arg[0])
             if stgs.GE.start_time != "":
-                set_inverter_register("64", stgs.GE.start_time)
+                start_time = t_to_hrs(t_to_mins(stgs.GE.start_time) + random.randint(1,14))
+                set_inverter_register("64", start_time)
             if stgs.GE.end_time != "":
                 set_inverter_register("65", stgs.GE.end_time)
 
         elif cmd == "set_soc_winter":  # Restore default overnight charge params
             set_inverter_register("77", "100")
             if stgs.GE.start_time != "":
+                start_time = t_to_hrs(t_to_mins(stgs.GE.start_time) + random.randint(1,14))
                 set_inverter_register("64", stgs.GE.start_time)
             if stgs.GE.end_time_winter != "":
                 set_inverter_register("65", stgs.GE.end_time_winter)
 
         elif cmd == "charge_now":
             set_inverter_register("77", "100")
-            set_inverter_register("64", "00:30")
+            set_inverter_register("64", "00:01")
             set_inverter_register("65", "23:59")
 
         elif cmd == "pause":
@@ -369,6 +363,12 @@ class GivEnergyObj:
             self.set_mode("set_soc_winter")
             return
 
+        # Quick check for valid generation data
+        if gen_fcast.pv_est50_day[0] == 0:
+            logger.error("Missing generation data, SoC set to 100")
+            self.set_mode("set_soc")
+            return
+
         # Solcast provides 3 estimates (P10, P50 and P90). Compute individual weighting
         # factors for each of the 3 estimates from the weight input parameter, using a
         # triangular approximation for simplicity
@@ -381,87 +381,136 @@ class GivEnergyObj:
             wgt_50 = weight - 10
         wgt_90 = max(0, weight - 50)
 
-        tgt_soc = 100
-        if gen_fcast.pv_est50_day[0] > 0:  # Quick check for valid generation data
+        logger.info("")
+        logger.info("{:<20} {:>10} {:>10} {:>10} {:>10}  {:>10} {:>10}".format("SoC Calc;",
+            "Day", "Hour", "Charge", "Cons", "Gen", "SoC"))
+##        plot_x = []
+##        plot_y1 = []
+##        plot_y2 = []
+##        plot_y3 = []
+##        plot_y4 = []
 
-            # The clever bit:
-            # Start with a battery at 100%. For each 30 -minute slot of the coming day, calculate
-            # the battery charge based on forecast generation and historical usage. Capture values
-            # for maximum charge and also the minimum charge value at any time before the maximum.
+        if stgs.GE.end_time != "":
+            end_charge_period = int(stgs.GE.end_time[0:2]) * 2
+        else:
+            end_charge_period = 8
 
-            batt_max_charge: float = stgs.GE.batt_max_charge
-            batt_charge: float = [0] * 49
-            batt_charge[0] = batt_max_charge
-            max_charge = 0
-            min_charge = batt_max_charge
+        batt_max_charge: float = stgs.GE.batt_max_charge
+        batt_charge: float = [0] * 98
+        reserve_energy = batt_max_charge * stgs.GE.batt_reserve / 100
+        max_charge_pcnt = [0] * 2
+        min_charge_pcnt = [0] * 2
 
-            logger.info("")
-            logger.info("{:<20} {:>10} {:>10} {:>10}  {:>10} {:>10}".format("SoC Calc;",
-                "Hour", "Charge", "Cons", "Gen", "SoC"))
+        # The clever bit:
+        # Start with battery at reserve %. For each 30-minute slot of the coming day, calculate
+        # the battery charge based on forecast generation and historical usage. Capture values
+        # for maximum charge and also the minimum charge value at any time before the maximum.
 
-            if stgs.GE.end_time != "":
-                end_charge_period = int(stgs.GE.end_time[0:2]) * 2
-            else:
-                end_charge_period = 8
-
-            i = 0
+        day = 0
+        while day < 2:  # Repeat for tomorrow and next day
+            batt_charge[0] = max_charge = min_charge = reserve_energy
             est_gen = 0
+            i = 0
             while i < 48:
                 if i <= end_charge_period:  # Battery is in AC Charge mode
                     total_load = 0
-                    batt_charge[i] = batt_max_charge
+                    batt_charge[i] = batt_charge[0]
                 else:
                     total_load = ge.base_load[i]
-                    est_gen = (gen_fcast.pv_est10_30[i] * wgt_10 +
-                        gen_fcast.pv_est50_30[i] * wgt_50+
-                        gen_fcast.pv_est90_30[i] * wgt_90) / (wgt_10 + wgt_50 + wgt_90)
+                    est_gen = (gen_fcast.pv_est10_30[day*48 + i] * wgt_10 +
+                        gen_fcast.pv_est50_30[day*48 + i] * wgt_50 +
+                        gen_fcast.pv_est90_30[day*48 + i] * wgt_90) / (wgt_10 + wgt_50 + wgt_90)
                     batt_charge[i] = (batt_charge[i - 1] +
                         max(-1 * stgs.GE.charge_rate,
                         min(stgs.GE.charge_rate, (est_gen - total_load))))
 
-                # Capture min charge on lowest down-slope before charge exceeds 100% append
-                # max charge if on an up slope after overnight charge
+                # Capture min charge on lowest point on down-slope before charge reaches 100%
+                # or max charge if on an up slope after overnight charge
                 if (batt_charge[i] <= batt_charge[i - 1] and
                     max_charge < batt_max_charge):
                     min_charge = min(min_charge, batt_charge[i])
                 elif i > end_charge_period:  # Charging after overnight boost
                     max_charge = max(max_charge, batt_charge[i])
 
-                logger.info("{:<20} {:>10} {:>10} {:>10}  {:>10} {:>10}".format("SoC Calc;",
-                    t_to_hrs(i * 30), round(batt_charge[i], 2), round(total_load, 2),
+                logger.info("{:<20} {:>10} {:>10} {:>10} {:>10}  {:>10} {:>10}".format("SoC Calc;",
+                    day, t_to_hrs(i * 30), round(batt_charge[i], 2), round(total_load, 2),
                     round(est_gen, 2), int(100 * batt_charge[i] / batt_max_charge)))
+##                plot_x.append(t_to_hrs((day*48 + i) * 30))
+##                plot_y1.append(int(100 * batt_charge[i])/batt_max_charge)
+##                plot_y3.append(100)
+##                plot_y4.append(stgs.GE.batt_reserve)
 
                 i += 1
 
-            max_charge_pcnt = int(100 * max_charge / batt_max_charge)
-            min_charge_pcnt = int(100 * min_charge / batt_max_charge)
+            max_charge_pcnt[day] = int(100 * max_charge / batt_max_charge)
+            min_charge_pcnt[day] = int(100 * min_charge / batt_max_charge)
 
-            # low_soc is the minimum SoC target. Provide more buffer capacity in shoulder months
-            if MNTH_VAR in stgs.GE.shoulder:
-                low_soc = stgs.GE.max_soc_target
-            else:
-                low_soc = stgs.GE.min_soc_target
+            day += 1
 
-            # The really clever bit is just two lines:
-            # Reduce the target SoC to the greater of:
-            #     The surplus above 100% for max_charge_pcnt
-            #     The spare capacity in the battery before the maximum charge point
-            #     The preset minimum value
-            # Range check the resulting value
-            tgt_soc = max(200 - max_charge_pcnt, 100 - min_charge_pcnt, low_soc)
-            tgt_soc = int(min(tgt_soc, 100))  # Limit range to 100%
-
-            logger.info("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("SoC Calc Summary;",
-                "Max Charge", "Min Charge", "Max %", "Min %", "Target SoC"))
-            logger.info("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("SoC Calc Summary;",
-                round(max_charge, 2), round(min_charge, 2),
-                max_charge_pcnt, min_charge_pcnt, tgt_soc))
-            logger.info("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("SoC (Adjusted);",
-                round(max_charge, 2), round(min_charge, 2),
-                max_charge_pcnt - 100 + tgt_soc, min_charge_pcnt - 100 + tgt_soc, "\n"))
-
+        # low_soc is the minimum SoC target. Provide more buffer capacity in shoulder months
+        # when load is likely to be more variable, e.g. heating
+        if MNTH_VAR in stgs.GE.shoulder:
+            low_soc = stgs.GE.max_soc_target
         else:
-            logger.warning("Incomplete Solcast data, setting target SoC to 100%")
+            low_soc = stgs.GE.min_soc_target
+
+        # So we now have the four values of max & min charge for tomorrow & overmorrow
+        # Check if overmorrow is better than tomorrow and there is opportunity to reduce target
+        # to avoid residual charge at the end of the day in anticipation of a sunny day
+        if max_charge_pcnt[1] > 100 - low_soc > max_charge_pcnt[0]:
+            logger.info("Overmorrow correction applied")
+            max_charge_pc = max_charge_pcnt[0] + (max_charge_pcnt[1] - 100) / 2
+        else:
+            logger.info("Overmorrow correction not needed/applied")
+            max_charge_pc = max_charge_pcnt[0]
+        min_charge_pc = min_charge_pcnt[0]
+
+        print("Min & max", min_charge_pc, max_charge_pc)
+        # The really clever bit: reduce the target SoC to the greater of:
+        #     The surplus above 100% for max_charge_pcnt
+        #     The value needed to achieve the stated spare capacity at minimum charge point
+        #     The preset minimum value
+        tgt_soc = max(100 - max_charge_pc, (low_soc - min_charge_pc), low_soc)
+        # Range check the resulting value
+        tgt_soc = int(min(tgt_soc, 100))  # Limit range to 100%
+
+        # Produce SoC plots (y1 = baseline, y2 = adjusted)
+##        day = 0
+##        diff = tgt_soc
+##        while day < 2:
+##            i = 0
+##            while i < 48:
+##                if day == 1 and i == 0:
+##                    diff = plot_y2[47] - plot_y1[48]
+##                if plot_y1[day*48 + i] + diff > 100:  # Correct for SoC > 100%
+##                    diff = 100 - plot_y1[day*48 + i]
+##                plot_y2.append(plot_y1[day*48 + i] + diff)
+##                i += 1
+##            day += 1
+
+        logger.info("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("SoC Calc Summary;",
+            "Max Charge", "Min Charge", "Max %", "Min %", "Target SoC"))
+        logger.info("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("SoC Calc Summary;",
+            round(max_charge, 2), round(min_charge, 2),
+            max_charge_pc, min_charge_pc, tgt_soc))
+        logger.info("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("SoC (Adjusted);",
+            round(max_charge, 2), round(min_charge, 2),
+            max_charge_pc + tgt_soc, min_charge_pc + tgt_soc, "\n"))
+
+##        plt.plot(plot_x, plot_y1, label='Baseline SoC', color='blue')
+##        plt.plot(plot_x, plot_y2, label='Adjusted SoC', color='black')
+##        plt.plot(plot_x, plot_y3, label='Capacity', color='red', linestyle='dashed')
+##        plt.plot(plot_x, plot_y4, label='Reserve', color='orange', linestyle='dashed')
+##        plt.xlabel('Time')
+##        plt.ylabel('SoC (%)')
+##        plt.title('SoC Summary '+ str(weight)+ '%')
+##        plt.tick_params(axis='x', rotation=55)
+##        plt.legend()
+##        if TEST_MODE is True:
+##            plt.show()
+##        else:
+##            plt.savefig('palm_plot.png')
+##            logger.info("Saving SoC summary plot as palm_plot.png")
 
         if commit:
             logger.critical("Sending calculated SoC to inverter: "+ str(tgt_soc))
@@ -600,9 +649,9 @@ class SolcastObj:
         self.pv_est50_day: [int] = [0] * 7
         self.pv_est90_day: [int] = [0] * 7
 
-        self.pv_est10_30: [int] = [0] * 48
-        self.pv_est50_30: [int] = [0] * 48
-        self.pv_est90_30: [int] = [0] * 48
+        self.pv_est10_30: [int] = [0] * 96
+        self.pv_est50_30: [int] = [0] * 96
+        self.pv_est90_30: [int] = [0] * 96
 
     def update(self):
         """Updates forecast generation from Solcast."""
@@ -635,14 +684,14 @@ class SolcastObj:
         # Download latest data for each array, abort if unsuccessful
         result, solcast_data_1 = get_solcast(stgs.Solcast.url_se)
         if not result:
-            logger.warning("Error; Problem reading Solcast data, using previous values (if any)")
+            logger.warning("Error; Problem with Solcast data, using previous values (if any)")
             return
 
         if stgs.Solcast.url_sw != "":  # Two arrays are specified
             logger.info("url_sw = '"+str(stgs.Solcast.url_sw)+"'")
             result, solcast_data_2 = get_solcast(stgs.Solcast.url_sw)
             if not result:
-                logger.warning("Error; Problem reading Solcast data, using previous values (if any)")
+                logger.warning("Error; Problem with Solcast data, using previous values (if any)")
                 return
         else:
             logger.info("No second array")
@@ -654,24 +703,21 @@ class SolcastObj:
         pv_est50 = [0] * 10080
         pv_est90 = [0] * 10080
 
-        # v0.8.3b bugfix: Number of lines reduced by 1 in Solcast data
-        # v0.9.2 Re-align with HA variant for single PV array
         if stgs.Solcast.url_sw != "":  # Two arrays are specified
             forecast_lines = min(len(solcast_data_1['forecasts']), len(solcast_data_2['forecasts'])) - 1
         else:
             forecast_lines = len(solcast_data_1['forecasts']) - 1
         interval = int(solcast_data_1['forecasts'][0]['period'][2:4])
-        solcast_offset = (60 * int(solcast_data_1['forecasts'][0]['period_end'][11:13]) +
-            int(solcast_data_1['forecasts'][0]['period_end'][14:16]) - interval - 60)
+        solcast_offset = t_to_mins(solcast_data_1['forecasts'][0]['period_end'][11:16]) - interval - 60
 
-        # Check for BST and convert to local time
+        # Check for BST and convert to local time to align with GivEnergy data
         if time.strftime("%z", time.localtime()) == "+0100":
             logger.info("Applying BST offset to Solcast data")
             solcast_offset += 60
 
         i = solcast_offset
         cntr = 0
-        while i < forecast_lines * interval:
+        while i < solcast_offset + forecast_lines * interval:
             if stgs.Solcast.url_sw != "":  # Two arrays are specified
                 pv_est10[i] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate10'] * 1000) +
                     int(solcast_data_2['forecasts'][cntr]['pv_estimate10'] * 1000))
@@ -683,12 +729,11 @@ class SolcastObj:
                 pv_est10[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate10'] * 1000)
                 pv_est50[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate'] * 1000)
                 pv_est90[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate90'] * 1000)
-
             if i > 1 and i % interval == 0:
                 cntr += 1
             i += 1
 
-        if solcast_offset > 720:  # Forget about current day
+        if solcast_offset > 720:  # Forget about current day as it's already afternoon
             offset = 1440 - 90
         else:
             offset = 0
@@ -703,7 +748,7 @@ class SolcastObj:
             i += 1
 
         i = 0
-        while i < 48:  # Calculate half-hourly generation
+        while i < 96:  # Calculate half-hourly generation
             start = i * 30 + offset + 1
             end = start + 29
             self.pv_est10_30[i] = round(sum(pv_est10[start:end])/60000, 3)
@@ -804,13 +849,13 @@ class EnvObj:
                 self.virt_ss_time = ge.sys_status[0]['time'][11:]
                 logger.info("VSunrise/set (Sunset detected) VSR: " +
                       str(env_obj.virt_sr_time)+ " VSS: "+ str(env_obj.virt_ss_time))
-            elif (ge.sys_status[0]['solar']['power'] > pwr_threshold >
+            elif (ge.sys_status[0]['solar']['power'] > 2 * pwr_threshold >
                 ge.sys_status[1]['solar']['power']):
-                # False alarm - sun back up
+                # False alarm - sun back up (added hyteresis to threshold)
                 new_virt_sr_ss = True
                 self.virt_ss_time = env_obj.ss_time
                 logger.info('VSunrise/set (False alarm) VSR:' +
-                      str(env_obj.virt_sr_time)+ "VSS: "+ str(env_obj.virt_ss_time))
+                      str(env_obj.virt_sr_time)+ " VSS:"+ str(env_obj.virt_ss_time))
         return new_virt_sr_ss
 
     def reset_sr_ss(self):
@@ -851,18 +896,24 @@ class EnvObj:
 def t_to_mins(time_in_hrs: str) -> int:
     """Convert times from HH:MM format to mins after midnight."""
 
-    time_in_mins = 60 * int(time_in_hrs[0:2]) + int(time_in_hrs[3:5])
-    return time_in_mins
+    try:
+        time_in_mins = 60 * int(time_in_hrs[0:2]) + int(time_in_hrs[3:5])
+        return time_in_mins
+    except Exception:
+        return 0
 
 #  End of t_to_mins()
 
 def t_to_hrs(time_in: int) -> str:
     """Convert times from mins after midnight format to HH:MM."""
 
-    hours = int(time_in // 60)
-    mins = int(time_in - hours * 60)
-    time_in_hrs = '{:02d}{}{:02d}'.format(hours, ": ", mins)
-    return time_in_hrs
+    try:
+        hours = int(time_in // 60)
+        mins = int(time_in - hours * 60)
+        time_in_hrs = '{:02d}{}{:02d}'.format(hours, ":", mins)
+        return time_in_hrs
+    except Exception:
+        return "00:00"
 
 #  End of t_to_hrs()
 
@@ -1020,6 +1071,8 @@ if __name__ == '__main__':
             ONCE_MODE = True
             MESSAGE = "Running in once mode, execute forecast and inverter SoC update, then exit"
 
+    logging.getLogger("matplotlib").setLevel(logging.WARNING)  # Matplotlib is too chatty
+    logging.getLogger("PIL").setLevel(logging.WARNING)  # PIL is too chatty
     if DEBUG_MODE:
         logging.basicConfig(level=logging.DEBUG)
     else:
@@ -1055,17 +1108,14 @@ if __name__ == '__main__':
             # GivEnergy power object
             ge: GivEnergyObj = GivEnergyObj()
             time.sleep(10)
-            # ge.get_load_hist()
 
-            if ONCE_MODE is False:
-                if MNTH_VAR in stgs.GE.winter:
-                    ge.set_mode("set_soc_winter")
-                else:
-                    ge.set_mode("set_soc","100")
+            if MNTH_VAR in stgs.GE.winter:
+                ge.set_mode("set_soc_winter")
+            else:
+                ge.set_mode("set_soc","100")
 
             # Solcast PV prediction object
             solcast: SolcastObj = SolcastObj()
-            # solcast.update()
 
             # Misc environmental data: weather, CO2, etc
             CO2_USAGE_VAR: int = 200
@@ -1115,23 +1165,21 @@ if __name__ == '__main__':
                 env_obj.reset_sr_ss()
 
             # Pause/resume battery once charged to compensate for AC3 inverter bug
+            # Covers charge period both in early-morning and spanning midnight
             if MANUAL_HOLD_VAR is False and \
-                t_to_mins(stgs.GE.start_time) < T_NOW_MINS_VAR < t_to_mins(stgs.GE.end_time):
+                (t_to_mins(stgs.GE.start_time) < T_NOW_MINS_VAR < t_to_mins(stgs.GE.end_time) or \
+                 T_NOW_MINS_VAR > t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) or \
+                 t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) > T_NOW_MINS_VAR):
                 if -2 < (ge.soc - ge.tgt_soc) < 2:  # Within 2% avoids sampling issues
                     ge.set_mode("pause")
                     MANUAL_HOLD_VAR = True
-
-            if MANUAL_HOLD_VAR is True and \
-                (MNTH_VAR not in stgs.GE.winter and T_NOW_MINS_VAR == t_to_mins(stgs.GE.end_time) or \
-                MNTH_VAR in stgs.GE.winter and T_NOW_MINS_VAR == t_to_mins(stgs.GE.end_time_winter) or \
-                (ge.soc - ge.tgt_soc) < -5):  # Resume charging if calibration has lowered SoC:
+            if MNTH_VAR not in stgs.GE.winter and T_NOW_MINS_VAR == t_to_mins(stgs.GE.end_time) or \
+                MNTH_VAR in stgs.GE.winter and T_NOW_MINS_VAR == t_to_mins(stgs.GE.end_time_winter):
                 ge.set_mode("resume")
                 MANUAL_HOLD_VAR = False
 
             # Afternoon battery boost in winter months to load shift from peak period
-            if MNTH_VAR in stgs.GE.winter and \
-                t_to_mins(stgs.GE.boost_start) < t_to_mins(stgs.GE.boost_finish):
-
+            if MNTH_VAR in stgs.GE.winter and stgs.GE.boost_start != "":
                 if T_NOW_MINS_VAR == t_to_mins(stgs.GE.boost_start) and \
                     env_obj.co2_high:
                     logger.info("Enabling afternoon battery boost")
@@ -1189,4 +1237,3 @@ if __name__ == '__main__':
 
         sys.stdout.flush()
 # End of main
-
