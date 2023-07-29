@@ -1,5 +1,5 @@
-# version 2023.06.21
-# Settings file for use with palm.py: 30-minute calculations (v0.9.0) and weightings for daily historical consumption (v0.10.0)
+# version 2023.07.29
+# Settings file for use with palm.py: Compatible with v0.9, v0.10 and v1.0.x
 
 # SolCast PV forecast generator. Two forecasts are obtained, one per array
 class Solcast:
@@ -56,7 +56,7 @@ class GE:
     shoulder = ["03", "04", "09", "10"]
 
     # Lower limit for state of charge (summertime)
-    min_soc_target = 25
+    min_soc_target = 20
 
     # Higher SoC limit for shoulder months
     max_soc_target = 60
@@ -76,9 +76,9 @@ class GE:
     charge_rate = 3
 
     # Default data for base load. Overwritten by actual data if available
-    base_load = [0.3, 2, 0.3, 0.3, 0.3, 0.5, 1.7, 1.8, 2.6, 1.5, 0.5, 2.5, 1.3, 1, 1.5, 0.5, 0.3, \
-                 1, 1.5, 1, 0.6, 0.5, 0.5, 0.3, 0.3, 2, 0.3, 0.3, 0.3, 0.5, 1.7, 1.8, 2.6, 1.5, \
-                 0.5, 2.5, 1.3, 1, 1.5, 0.5, 0.3, 1, 1.5, 1, 0.6, 0.5, 0.5, 0.3]
+    base_load = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, \
+                 0.2, 0.2, 0.2, 0.3, 0.2, 0.2, 0.1, 0.3, 0.3, 0.2, 0.3, 0.8, 0.6, 0.3, 0.3, 0.2, \
+                 0.2, 0.2, 0.2, 0.6, 0.6, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
 
     # Load history is a weighted average of actual load from previous days.
     # Uncomment required settings or make your own using positive integers only. Examples:
@@ -93,13 +93,13 @@ class GE:
     # Weighted average (a more extreme example)
     # load_hist_weight = [4, 2, 2, 1, 1, 1, 1]
 
-    # Start time for Overnight Charge. If "" disables writing this inverter register
+    # Start time for Overnight Charge. If "", disables writing this inverter register
     start_time = "00:30"
 
-    # End time for Overnight Charge period. If "" disables writing this inverter register
+    # End time for Overnight Charge period. If "", disables writing this inverter register
     end_time = "04:30"
 
-    # Delayed winter end time saves battery for morning peak. If "" disables writing this inverter register
+    # Delayed winter end time saves battery for morning peak. If "", disables writing this inverter register
     end_time_winter = "06:30"    
 
     # Winter afternoon boost start and end times
