@@ -718,17 +718,22 @@ class SolcastObj:
         i = solcast_offset
         cntr = 0
         while i < solcast_offset + forecast_lines * interval:
-            if stgs.Solcast.url_sw != "":  # Two arrays are specified
-                pv_est10[i] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate10'] * 1000) +
-                    int(solcast_data_2['forecasts'][cntr]['pv_estimate10'] * 1000))
-                pv_est50[i] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate'] * 1000) +
-                    int(solcast_data_2['forecasts'][cntr]['pv_estimate'] * 1000))
-                pv_est90[i] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate90'] * 1000) +
-                    int(solcast_data_2['forecasts'][cntr]['pv_estimate90'] * 1000))
-            else:
-                pv_est10[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate10'] * 1000)
-                pv_est50[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate'] * 1000)
-                pv_est90[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate90'] * 1000)
+            try:
+                if stgs.Solcast.url_sw != "":  # Two arrays are specified
+                    pv_est10[i] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate10'] * 1000) +
+                        int(solcast_data_2['forecasts'][cntr]['pv_estimate10'] * 1000))
+                    pv_est50[i] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate'] * 1000) +
+                        int(solcast_data_2['forecasts'][cntr]['pv_estimate'] * 1000))
+                    pv_est90[i] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate90'] * 1000) +
+                        int(solcast_data_2['forecasts'][cntr]['pv_estimate90'] * 1000))
+                else:
+                    pv_est10[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate10'] * 1000)
+                    pv_est50[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate'] * 1000)
+                    pv_est90[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate90'] * 1000)
+            except Exception:
+                logger.error("Error: Unexpected end of Solcast data. i="+ str(i)+ "cntr="+ str(cntr))
+                break
+            
             if i > 1 and i % interval == 0:
                 cntr += 1
             i += 1
