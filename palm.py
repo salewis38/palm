@@ -145,7 +145,7 @@ class GivEnergyObj:
 
             url = stgs.GE.url + "meter-data/latest"
             try:
-                resp = requests.request('GET', url, headers=headers)
+                resp = requests.request('GET', url, headers=headers, tinmeout=10)
             except requests.exceptions.RequestException as error:
                 logger.error(error)
                 return
@@ -195,7 +195,7 @@ class GivEnergyObj:
             }
 
             try:
-                resp = requests.request('GET', url, headers=headers, params=params)
+                resp = requests.request('GET', url, headers=headers, params=params, tinmeout=10)
             except requests.exceptions.RequestException as error:
                 logger.error(error)
                 return load_array
@@ -282,7 +282,7 @@ class GivEnergyObj:
             resp = "TEST"
             if not TEST_MODE:
                 try:
-                    resp = requests.request('POST', url, headers=headers, json=payload)
+                    resp = requests.request('POST', url, headers=headers, json=payload, tinmeout=10)
                 except requests.exceptions.RequestException as error:
                     logger.error(error)
                     return
@@ -306,7 +306,7 @@ class GivEnergyObj:
             payload = {}
 
             try:
-                resp = requests.request('POST', url, headers=headers, json=payload)
+                resp = requests.request('POST', url, headers=headers, json=payload, tinmeout=10)
             except resp.exceptions.RequestException as error:
                 logger.error(error)
                 return
@@ -798,7 +798,7 @@ class EnvObj:
         }
 
         try:
-            resp = requests.get(url, params={}, headers=headers)
+            resp = requests.get(url, params={}, headers=headers, tinmeout=10)
             resp.raise_for_status()
         except requests.exceptions.RequestException as error:
             logger.warning("Warning: Problem obtaining CO2 intensity: "+ str(error))
