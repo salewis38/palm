@@ -95,7 +95,7 @@ class GivEnergyObj:
                 }
 
         try:
-            response = requests.request('GET', url, headers=headers, json=payload)
+            response = requests.request('GET', url, headers=headers, json=payload, tinmeout=10)
         except requests.exceptions.RequestException as error:
             print(error)
             return
@@ -125,7 +125,7 @@ class GivEnergyObj:
             }
 
             try:
-                resp = requests.request('GET', url, headers=headers)
+                resp = requests.request('GET', url, headers=headers, tinmeout=10)
             except requests.exceptions.RequestException as error:
                 print(error)
                 return
@@ -157,7 +157,7 @@ class GivEnergyObj:
 
             url = stgs.GE.url + "meter-data/latest"
             try:
-                resp = requests.request('GET', url, headers=headers)
+                resp = requests.request('GET', url, headers=headers, tinmeout=10)
             except requests.exceptions.RequestException as error:
                 print(error)
                 return
@@ -203,7 +203,7 @@ class GivEnergyObj:
         }
 
         try:
-            resp = requests.request('GET', url, headers=headers, params=params)
+            resp = requests.request('GET', url, headers=headers, params=params, tinmeout=10)
         except requests.exceptions.RequestException as error:
             print(error)
             return
@@ -254,7 +254,7 @@ class GivEnergyObj:
                 resp = ""
                 if not TEST_MODE:
                     try:
-                        resp = requests.request('POST', url, headers=headers, json=payload)
+                        resp = requests.request('POST', url, headers=headers, json=payload, tinmeout=10)
                     except requests.exceptions.RequestException as error:
                         print(error)
                         return
