@@ -416,7 +416,7 @@ class GivEnergyObj:
                     total_load = 0
                     batt_charge[i] = batt_charge[0]
                 else:
-                    total_load = ge.base_load[i]
+                    total_load = self.base_load[i]
                     est_gen = (gen_fcast.pv_est10_30[day*48 + i] * wgt_10 +
                         gen_fcast.pv_est50_30[day*48 + i] * wgt_50 +
                         gen_fcast.pv_est90_30[day*48 + i] * wgt_90) / (wgt_10 + wgt_50 + wgt_90)
@@ -719,24 +719,32 @@ class SolcastObj:
         cntr = 0
         while i < solcast_offset + forecast_lines * interval:
             try:
-                if stgs.Solcast.url_sw != "":  # Two arrays are specified
-                    pv_est10[i] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate10'] * 1000) +
-                        int(solcast_data_2['forecasts'][cntr]['pv_estimate10'] * 1000))
-                    pv_est50[i] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate'] * 1000) +
-                        int(solcast_data_2['forecasts'][cntr]['pv_estimate'] * 1000))
-                    pv_est90[i] = (int(solcast_data_1['forecasts'][cntr]['pv_estimate90'] * 1000) +
-                        int(solcast_data_2['forecasts'][cntr]['pv_estimate90'] * 1000))
-                else:
-                    pv_est10[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate10'] * 1000)
-                    pv_est50[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate'] * 1000)
-                    pv_est90[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate90'] * 1000)
+                pv_est10[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate10'] * 1000)
+                pv_est50[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate'] * 1000)
+                pv_est90[i] = int(solcast_data_1['forecasts'][cntr]['pv_estimate90'] * 1000)
             except Exception:
-                logger.error("Error: Unexpected end of Solcast data. i="+ str(i)+ "cntr="+ str(cntr))
+                logger.error("Error: Unexpected end of Solcast data (array #1). i="+ str(i)+ "cntr="+ str(cntr))
                 break
-            
+
             if i > 1 and i % interval == 0:
                 cntr += 1
             i += 1
+
+        if stgs.Solcast.url_sw != "":  # Two arrays are specified
+            i = solcast_offset
+            cntr = 0
+            while i < solcast_offset + forecast_lines * interval:
+                try:
+                    pv_est10[i] += int(solcast_data_2['forecasts'][cntr]['pv_estimate10'] * 1000)
+                    pv_est50[i] += int(solcast_data_2['forecasts'][cntr]['pv_estimate'] * 1000)
+                    pv_est90[i] += int(solcast_data_2['forecasts'][cntr]['pv_estimate90'] * 1000)
+                except Exception:
+                    logger.error("Error: Unexpected end of Solcast data (array #2). i="+ str(i)+ "cntr="+ str(cntr))
+                    break
+
+                if i > 1 and i % interval == 0:
+                    cntr += 1
+                i += 1
 
         if solcast_offset > 720:  # Forget about current day as it's already afternoon
             offset = 1440 - 90
