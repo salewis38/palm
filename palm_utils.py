@@ -491,14 +491,14 @@ class GivEnergyObj:
                 i += 1
             day += 1
 
-        # Send plot data to stdout in CSV format
-        print("SoC Chart Data")
-        print("Time,", plot_x)
-        print("Calculated SoC,", plot_y1)
-        print("Adjusted SoC,", plot_y2)
-        print("Max,", plot_y3)
-        print("Reserve,", plot_y4)
-        print("End of SoC Chart Data")
+        # Send plot data to logfile in CSV format
+        logger.info("SoC Chart Data")
+        logger.info("Time,"+ str(plot_x))
+        logger.info("Calculated SoC,"+ str(plot_y1))
+        logger.info("Adjusted SoC,"+ str(plot_y2))
+        logger.info("Max,"+ str(plot_y3))
+        logger.info("Reserve,"+ str(plot_y4))
+        logger.info("End of SoC Chart Data")
 
         logger.info("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("SoC Calc Summary;",
             "Max Charge", "Min Charge", "Max %", "Min %", "Target SoC"))
