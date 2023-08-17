@@ -462,10 +462,10 @@ class GivEnergyObj:
         # Check if overmorrow is better than tomorrow and there is opportunity to reduce target
         # to avoid residual charge at the end of the day in anticipation of a sunny day
         if max_charge_pcnt[1] > 100 - low_soc > max_charge_pcnt[0]:
-            logger.info("Overmorrow correction applied")
+            logger.info("Overmorrow correction enabled")
             max_charge_pc = max_charge_pcnt[0] + (max_charge_pcnt[1] - 100) / 2
         else:
-            logger.info("Overmorrow correction not needed/applied")
+            logger.info("Overmorrow correction not needed/enabled")
             max_charge_pc = max_charge_pcnt[0]
         min_charge_pc = min_charge_pcnt[0]
 
