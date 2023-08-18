@@ -242,7 +242,7 @@ class GivEnergyObj:
             i += 1
 
         # Avoid DIV/0 if config file contains incorrect weightings
-        if total weight == 0:
+        if total_weight == 0:
             logger.error("Configuration error: incorrect daily weightings")
             total_weight = 1
 
