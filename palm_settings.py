@@ -2,6 +2,8 @@
 """
 Settings file for use with palm.py: Compatible with v0.9, v0.10, v1.0.x and v1.1.x
 """
+######
+# Do not edit this class definition, it is used to share global variables between components of the PALM system
 class pg:
     """PALM global variable definitions. Used by palm_utils and project-specific wrappers"""
 
@@ -15,6 +17,8 @@ class pg:
     loop_counter: int = 0  # 1 minute minor frame. "0" = initialise
     pvo_tstamp: int = 0  # Records value of loop_counter when PV data last written
     palm_version: str = ""
+######
+# Edit from this point onwards
 
 # SolCast PV forecast generator. Two forecasts are obtained, one per array
 class Solcast:
