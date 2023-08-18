@@ -223,7 +223,7 @@ class GivEnergyObj:
 
         load_hist_array = [0] * 48
         acc_load = [0] * 48
-        total_weight: int = 0
+        total_weight: float = 0
 
         i: int = 0
         while i < len(stgs.GE.load_hist_weight):
@@ -238,15 +238,19 @@ class GivEnergyObj:
                 total_weight += stgs.GE.load_hist_weight[i]
                 logger.debug(str(acc_load)+ " total weight: "+ str(total_weight))
             else:
-                logger.info("Skipping load history for day -"+ str(i + 1)+ " (weight = 0)")
+                logger.info("Skipping load history for day -"+ str(i + 1)+ " (weight <= 0)")
             i += 1
+
+        # Avoid DIV/0 if config file contains incorrect weightings
+        if total weight == 0:
+            logger.error("Configuration error: incorrect daily weightings")
+            total_weight = 1
 
         # Calculate averages and write results
         i = 0
         while i < 48:
             self.base_load[i] = round(acc_load[i]/total_weight, 1)
             i += 1
-
         logger.info("Load Calc Summary: "+ str(self.base_load))
 
     def set_mode(self, cmd: str):
