@@ -3,25 +3,31 @@ PV Automated Load Manager
 
 This software forms the basis of a simple home automation system, using the following hardware:
 
-GivEnergy AC-coupled inverter with AC115 power monitoring on supply and local PV generation
+GivEnergy AC-coupled inverter with power monitoring on supply and local PV generation
 MiHome remote-controlled switches for various loads, controlled via hub and API
 
 It performs the following functions:
 
 * aggregating data from multiple sources and upload to PVOutput.org every for 5 minutes for long-term analysis
 
-* setting overnight battery charge target for off-peak electricity usage, based on forecast generation and previous day's consumption
+* setting overnight battery charge target for off-peak electricity usage, based on forecast generation and previous days' consumption
 
 * a simple sequencer for load management, based on time, temperature, battery charge and CO2/kWh
 
-UPDATE 30/May/2023
-File palm_soc.py is now retired as the functionality has been merged back into palm.py. The settings.py file has had minor updates to accommodate this change.
+UPDATE 18/Aug/2023
+File palm_soc.py is used by the GivTCP add-on to Home Assistant. The main file for execution outside the HA environment is palm.py. This includes ONCE_MODE "palm.py -o" to run through the overnight calculations and then exit.
 
-palm.py also includes ONCE_MODE "palm.py -o" to run through the overnight calculations and then exit.
+To simplify code maintenance:
+* the settings.py file has been renamed to palm_settings.py for consistency with GivTCP.
+* common functionality for all variants of PALM has been moved to a separate palm_utils.py file.
 
 Use the command "palm.py -t" for test, drop the "-t" argument for the target value to be written to the GivEnergy server
 
+PALM now outputs a set of plot data that summarises the SoC calculation. To generate a chart, paste the CSV data into Excel.
+
 The conservativeness of the forecast works for me and is set at 35%. It can be altered by changing the "Solcast.weight" parameter in settings.py 
+
+PALM now includes an Overmorrow function to increase self-consumption in changeable weather.
 
 INSTALLATION INSTRUCTIONS FOR LINUX-BASED SYSTEMS, INCLUDING HOW TO RUN AS A SERVICE ON RASPBERRY PI
 1. Create local directories:
