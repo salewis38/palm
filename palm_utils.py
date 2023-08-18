@@ -90,6 +90,7 @@ class GivEnergyObj:
         self.base_load = stgs.GE.base_load
         self.tgt_soc = 100
         self.cmd_list = stgs.GE_Command_list['data']
+        self.plot = [""] * 5
 
         logger.debug("Valid inverter commands:")
         for line in self.cmd_list:
@@ -385,12 +386,12 @@ class GivEnergyObj:
         logger.info("{:<20} {:>10} {:>10} {:>10} {:>10}  {:>10} {:>10}".format("SoC Calc;",
             "Day", "Hour", "Charge", "Cons", "Gen", "SoC"))
 
-        # Array definition for export of SoC forecast in chart form
-        plot_x = []
-        plot_y1 = []
-        plot_y2 = []
-        plot_y3 = []
-        plot_y4 = []
+        # Definitions for export of SoC forecast in chart form
+        plot_x = ["Time"]
+        plot_y1 = ["Calculated SoC"]
+        plot_y2 = ["Adjusted SoC"]
+        plot_y3 = ["Max"]
+        plot_y4 = ["Reserve"]
 
         if stgs.GE.end_time != "":
             end_charge_period = int(stgs.GE.end_time[0:2]) * 2
@@ -484,21 +485,19 @@ class GivEnergyObj:
             i = 0
             while i < 48:
                 if day == 1 and i == 0:
-                    diff = plot_y2[47] - plot_y1[48]
-                if plot_y1[day*48 + i] + diff > 100:  # Correct for SoC > 100%
+                    diff = plot_y2[48] - plot_y1[49]
+                if plot_y1[day*48 + i + 1] + diff > 100:  # Correct for SoC > 100%
                     diff = 100 - plot_y1[day*48 + i]
-                plot_y2.append(plot_y1[day*48 + i] + diff)
+                plot_y2.append(plot_y1[day*48 + i + 1] + diff)
                 i += 1
             day += 1
 
-        # Send plot data to logfile in CSV format
-        logger.info("SoC Chart Data")
-        logger.info("Time,"+ str(plot_x))
-        logger.info("Calculated SoC,"+ str(plot_y1))
-        logger.info("Adjusted SoC,"+ str(plot_y2))
-        logger.info("Max,"+ str(plot_y3))
-        logger.info("Reserve,"+ str(plot_y4))
-        logger.info("End of SoC Chart Data")
+        # Store plot data
+        self.plot[0] = str(plot_x)
+        self.plot[1] = str(plot_y1)
+        self.plot[2] = str(plot_y2)
+        self.plot[3] = str(plot_y3)
+        self.plot[4] = str(plot_y4)
 
         logger.info("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("SoC Calc Summary;",
             "Max Charge", "Min Charge", "Max %", "Min %", "Target SoC"))

@@ -117,4 +117,12 @@ if __name__ == '__main__':
     logger.info("Forecast weighting: "+ str(PV_WEIGHT))
     GivTCP_write_soc(inverter.compute_tgt_soc(pv_forecast, PV_WEIGHT, True))
 
+    # Send plot data to logfile in CSV format
+    logger.info("SoC Chart Data - Start")
+    i = 0
+    while i < 5:
+        logger.info(inverter.plot[i])
+        i += 1
+    logger.info("SoC Chart Data - End")
+
 # End of main

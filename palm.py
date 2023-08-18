@@ -549,13 +549,20 @@ if __name__ == '__main__':
             if ((stgs.pg.test_mode or stgs.pg.once_mode) and stgs.pg.loop_counter == 2) or \
                 stgs.pg.t_now_mins == (t_to_mins(stgs.GE.start_time) + 1438) % 1440:
                 # compute & set SoC target
-
                 try:
                     inverter.get_load_hist()
                     logger.info("Forecast weighting: "+ str(stgs.Solcast.weight))
                     inverter.set_mode(inverter.compute_tgt_soc(pv_forecast, stgs.Solcast.weight, True))
                 except Exception:
                     logger.error("Warning; unable to set SoC")
+
+                # Send plot data to logfile in CSV format
+                logger.info("SoC Chart Data - Start")
+                i = 0
+                while i < 5:
+                    logger.info(inverter.plot[i])
+                    i += 1
+                logger.info("SoC Chart Data - End")
 
                 # if running in once mode, quit after inverter SoC update
                 if stgs.pg.once_mode:
