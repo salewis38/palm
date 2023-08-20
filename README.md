@@ -46,9 +46,9 @@ INSTALLATION INSTRUCTIONS FOR LINUX-BASED SYSTEMS, INCLUDING HOW TO RUN AS A SER
 
     $ cp -rp palm-heads-main/* ./
     
-3. Edit settings.py with your system details, etc
+3. Edit palm_settings.py with your system details, etc
 
-    $ nano settings.py
+    $ nano palm_settings.py
 
 4. Run palm.py, initially in test mode with the command:
 
@@ -69,15 +69,15 @@ INSTALLATION INSTRUCTIONS FOR LINUX-BASED SYSTEMS, INCLUDING HOW TO RUN AS A SER
 INSTALLATION INSTRUCTIONS FOR WINDOWS-BASED SYSTEMS
 Method 1 (simplest):
 1.    Create a working directory
-2.    Download palm.exe and settings.py to the working directory
-3.    Edit settings.py with your system details
+2.    Download palm.exe and palm_settings.py to the working directory
+3.    Edit palm_settings.py with your system details
 4.    Using a command window, navigate to the working directory and run palm.exe, initially with the -t option to run in test mode
 
 Method 2 (harder, but more versatile):
 1.    Install Python 3 from python.org. Palm.py works with versions of Python >= 3.9
 2.    Create a working directory
-3.    Download palm.py and settings.py to the working directory
-4.    Edit settings.py with your system details
+3.    Download palm.py, palm_utils.py and palm_settings.py to the working directory
+4.    Edit palm_settings.py with your system details
 5.    Using a command window, navigate to the working directory and run palm.py, initially with the -t option to run in test mode
 6.    If there are any missing library dependencies from the Python install, these are added using the command "pip3 install [modulename]"
 
@@ -91,7 +91,7 @@ Please note, to make any changes to the image, i.e. updating the settings file, 
 2.    Go to Control Panel > Terminal & SNMP > Enable SSH service
 3.    SSH into your Synology NAS
 4.    Navigate to the directory you have extracted palm to using: cd /volume1/your/palm-directory
-5.    Create a Docker image using: sudo docker build -t desired-image-name .
+5.    Create a Docker image using: sudo docker build -t desired-image-name
 6.    Once complete, depending on Synology version go to Docker or Container Manager and select the “Container” menu; the instructions below assume you have Container Manager, the menus are slightly different in Docker, but should still generally match the below
 7.    Click “Create” and I’m the Image field select the image you just created
 8.    Give the Container a name under “Container name”
