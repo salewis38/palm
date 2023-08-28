@@ -537,17 +537,20 @@ if __name__ == '__main__':
         else:
             # Schedule activities at specific intervals
 
-            # 5 minutes before off-peak start for next day's forecast
+            # 5 minutes before off-peak start for next day's forecast and 1hr before off-peak ends
             if ((stgs.pg.test_mode or stgs.pg.once_mode) and stgs.pg.loop_counter == 1) or \
-                stgs.pg.t_now_mins == (t_to_mins(stgs.GE.start_time) + 1435) % 1440:
+                stgs.pg.t_now_mins == (t_to_mins(stgs.GE.start_time) + 1435) % 1440 or \
+                stgs.pg.t_now_mins == (t_to_mins(stgs.GE.end_time) + 1375) % 1440:
                 try:
                     pv_forecast.update()
                 except Exception:
                     logger.warning("Warning; Solcast download failure")
 
             # 2 minutes before off-peak start for setting overnight battery charging target
+            # Repeat 60 mins before end of off-peak in case of Solcast fine-tuning
             if ((stgs.pg.test_mode or stgs.pg.once_mode) and stgs.pg.loop_counter == 2) or \
-                stgs.pg.t_now_mins == (t_to_mins(stgs.GE.start_time) + 1438) % 1440:
+                stgs.pg.t_now_mins == (t_to_mins(stgs.GE.start_time) + 1438) % 1440 or \
+                stgs.pg.t_now_mins == (t_to_mins(stgs.GE.end_time) + 1380) % 1440:
                 # compute & set SoC target
                 try:
                     inverter.get_load_hist()
@@ -572,7 +575,7 @@ if __name__ == '__main__':
                 # Reset sunrise and sunset for next day
                 env_obj.reset_sr_ss()
 
-            # Pause/resume battery once charged to compensate for AC3 inverter bug
+            # Pause/resume battery once charged to compensate for AC3 inverter oscillation bug
             # Covers charge period both in early-morning and spanning midnight
             if MANUAL_HOLD_VAR is False and \
                 (t_to_mins(stgs.GE.start_time) < stgs.pg.t_now_mins < t_to_mins(stgs.GE.end_time) or \
@@ -582,7 +585,8 @@ if __name__ == '__main__':
                     inverter.set_mode("pause")
                     MANUAL_HOLD_VAR = True
             if stgs.pg.month not in stgs.GE.winter and stgs.pg.t_now_mins == t_to_mins(stgs.GE.end_time) or \
-                stgs.pg.month in stgs.GE.winter and stgs.pg.t_now_mins == t_to_mins(stgs.GE.end_time_winter):
+                stgs.pg.month in stgs.GE.winter and stgs.pg.t_now_mins == t_to_mins(stgs.GE.end_time_winter) or \
+                stgs.pg.t_now_mins + 60 == t_to_mins(stgs.GE.end_time):
                 inverter.set_mode("resume")
                 MANUAL_HOLD_VAR = False
 
