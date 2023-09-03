@@ -345,8 +345,19 @@ class GivEnergyObj:
             set_inverter_register("64", "00:01")
             set_inverter_register("65", "23:59")
 
+        elif cmd == "charge_now_soc":
+            set_inverter_register("77", str(self.tgt_soc))
+            set_inverter_register("64", "00:01")
+            set_inverter_register("65", "23:59")
+
         elif cmd == "pause":
             set_inverter_register("72", "0")
+            set_inverter_register("73", "0")
+
+        elif cmd == "pause_charge":
+            set_inverter_register("72", "0")
+
+        elif cmd == "pause_discharge":
             set_inverter_register("73", "0")
 
         elif cmd == "resume":
