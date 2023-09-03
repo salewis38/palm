@@ -592,8 +592,7 @@ if __name__ == '__main__':
 
             # Afternoon battery boost in winter months to load shift from peak period
             if stgs.pg.month in stgs.GE.winter and stgs.GE.boost_start != "":
-                if stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_start) and \
-                    env_obj.co2_high:
+                if stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_start):
                     logger.info("Enabling afternoon battery boost")
                     inverter.set_mode("charge_now")
                 if stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_finish):
