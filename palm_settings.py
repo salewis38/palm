@@ -113,7 +113,8 @@ class GE:
     # load_hist_weight = [4, 2, 2, 1, 1, 1, 1]
 
     # Start time for Overnight Charge. If "", disables writing this inverter register
-    start_time = "00:30"
+    # Be kind to the grid and set your own value that isn't "on the hour/half-hour" to stagger demand
+    start_time = "00:37"
 
     # End time for Overnight Charge period. If "", disables writing this inverter register
     end_time = "04:30"
