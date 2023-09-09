@@ -603,15 +603,6 @@ if __name__ == '__main__':
                 if stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_finish):
                     inverter.set_mode("set_soc_winter")  # Set inverter for next timed charge period
 
-            if stgs.pg.month in stgs.GE.winter and stgs.GE.boost_start != "":
-                if stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_start):
-                    logger.info("Enabling afternoon battery boost")
-                    inverter.set_mode("charge_now")
-                if stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_finish):
-                    inverter.set_mode("set_soc_winter")
-
-
-            
             if stgs.pg.once_mode is False:
                 # Update carbon intensity every 15 mins as background task
                 if stgs.CarbonIntensity.enable is True and stgs.pg.loop_counter % 15 == 14:
