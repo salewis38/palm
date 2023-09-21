@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 # ...
 # v0.10.0   21/Jun/23 Added multi-day averaging for usage calcs
 # v1.0.0    15/Jul/23 Random start time, Solcast data correction, IO compatibility, 48-hour fcast
-# v1.1.0    06/Aug/23 Split out generic functions as palm_utils.py (this file), remove random start time (add comment in settings instead) 
+# v1.1.0    06/Aug/23 Split out generic functions as palm_utils.py (this file)
 
 PALM_VERSION = "v1.1.0"
 # -*- coding: utf-8 -*-
@@ -222,7 +222,7 @@ class GivEnergyObj:
 
         load_hist_array = [0] * 48
         acc_load = [0] * 48
-        total_weight: float = 0
+        total_weight: int = 0
 
         i: int = 0
         while i < len(stgs.GE.load_hist_weight):
@@ -237,19 +237,15 @@ class GivEnergyObj:
                 total_weight += stgs.GE.load_hist_weight[i]
                 logger.debug(str(acc_load)+ " total weight: "+ str(total_weight))
             else:
-                logger.info("Skipping load history for day -"+ str(i + 1)+ " (weight <= 0)")
+                logger.info("Skipping load history for day -"+ str(i + 1)+ " (weight = 0)")
             i += 1
-
-        # Avoid DIV/0 if config file contains incorrect weightings
-        if total_weight == 0:
-            logger.error("Configuration error: incorrect daily weightings")
-            total_weight = 1
 
         # Calculate averages and write results
         i = 0
         while i < 48:
             self.base_load[i] = round(acc_load[i]/total_weight, 1)
             i += 1
+
         logger.info("Load Calc Summary: "+ str(self.base_load))
 
     def set_mode(self, cmd: str):
@@ -344,19 +340,8 @@ class GivEnergyObj:
             set_inverter_register("64", "00:01")
             set_inverter_register("65", "23:59")
 
-        elif cmd == "charge_now_soc":
-            set_inverter_register("77", str(self.tgt_soc))
-            set_inverter_register("64", "00:01")
-            set_inverter_register("65", "23:59")
-
         elif cmd == "pause":
             set_inverter_register("72", "0")
-            set_inverter_register("73", "0")
-
-        elif cmd == "pause_charge":
-            set_inverter_register("72", "0")
-
-        elif cmd == "pause_discharge":
             set_inverter_register("73", "0")
 
         elif cmd == "resume":
@@ -473,16 +458,17 @@ class GivEnergyObj:
         else:
             low_soc = stgs.GE.min_soc_target
 
+        max_charge_pc = max_charge_pcnt[0]
+        min_charge_pc = min_charge_pcnt[0]
+
         # So we now have the four values of max & min charge for tomorrow & overmorrow
         # Check if overmorrow is better than tomorrow and there is opportunity to reduce target
         # to avoid residual charge at the end of the day in anticipation of a sunny day
-        if max_charge_pcnt[1] > 100 - low_soc > max_charge_pcnt[0]:
+        if max_charge_pcnt[1] > 100 and  max_charge_pcnt[0] < 100:
             logger.info("Overmorrow correction enabled")
-            max_charge_pc = max_charge_pcnt[0] + (max_charge_pcnt[1] - 100) / 2
+            max_charge_pc -= int((max_charge_pcnt[1] - 100) / 2)
         else:
             logger.info("Overmorrow correction not needed/enabled")
-            max_charge_pc = max_charge_pcnt[0]
-        min_charge_pc = min_charge_pcnt[0]
 
         # The really clever bit: reduce the target SoC to the greater of:
         #     The surplus above 100% for max_charge_pcnt
