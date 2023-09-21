@@ -478,10 +478,11 @@ class GivEnergyObj:
 
         # We now have the four values of max & min charge for tomorrow & overmorrow
         # Check if overmorrow is better than tomorrow and there is opportunity to reduce target
-        # to avoid residual charge at the end of the day in anticipation of a sunny day
+        # to avoid residual charge at the end of the day in anticipation of a sunny day.
+        # Reduce the target by implying that there will be more than forecast generation
         if max_charge_pcnt[1] > 100 and  max_charge_pcnt[0] < 100:
             logger.info("Overmorrow correction enabled")
-            max_charge_pc -= int((max_charge_pcnt[1] - 100) / 2)
+            max_charge_pc += int((max_charge_pcnt[1] - 100) / 2)
         else:
             logger.info("Overmorrow correction not needed/enabled")
 
