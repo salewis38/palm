@@ -111,7 +111,7 @@ class GivEnergyObj:
             }
 
             try:
-                resp = requests.request('GET', url, headers=headers)
+                resp = requests.request('GET', url, headers=headers, timeout=10)
             except requests.exceptions.RequestException as error:
                 logger.error(error)
                 return
