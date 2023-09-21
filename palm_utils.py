@@ -48,300 +48,55 @@ logger = logging.getLogger(__name__)
 # ...
 # v0.10.0   21/Jun/23 Added multi-day averaging for usage calcs
 # v1.0.0    15/Jul/23 Random start time, Solcast data correction, IO compatibility, 48-hour fcast
-# v1.1.0    06/Aug/23 Split out generic functions as palm_utils.py (this file)
+# v1.1.0    06/Aug/23 Split out generic functions as palm_utils.py (this file), remove random start time (add comment in settings instead)
 
 PALM_VERSION = "v1.1.0"
 # -*- coding: utf-8 -*-
-# pylint: disable=logging-not-lazy
-# pylint: disable=consider-using-f-string
-
-class GivEnergyObj:
-    """Class for GivEnergy inverter"""
-
-    def __init__(self):
-        sys_item = {'time': '',
-                    'solar': {'power': 0, 'arrays':
-                                  [{'array': 1, 'voltage': 0, 'current': 0, 'power': 0},
-                                   {'array': 2, 'voltage': 0, 'current': 0, 'power': 0}]},
-                    'grid': {'voltage': 0, 'current': 0, 'power': 0, 'frequency': 0},
-                    'battery': {'percent': 0, 'power': 0, 'temperature': 0},
-                    'inverter': {'temperature': 0, 'power': 0, 'output_voltage': 0, \
-                        'output_frequency': 0, 'eps_power': 0},
-                    'consumption': 0}
-        self.sys_status: List[str] = [sys_item] * 5
-
-        meter_item = {'time': '',
-                      'today': {'solar': 0, 'grid': {'import': 0, 'export': 0},
-                                'battery': {'charge': 0, 'discharge': 0}, 'consumption': 0},
-                      'total': {'solar': 0, 'grid': {'import': 0, 'export': 0},
-                                'battery': {'charge': 0, 'discharge': 0}, 'consumption': 0}}
-        self.meter_status: List[str] = [meter_item] * 5
-
-        self.read_time_mins: int = -100
-        self.line_voltage: float = 0
-        self.grid_power: int = 0
-        self.grid_energy: int = 0
-        self.pv_power: int = 0
-        self.pv_energy: int = 0
-        self.batt_power: int = 0
-        self.consumption: int = 0
-        self.soc: int = 0
-        self.base_load = stgs.GE.base_load
-        self.tgt_soc = 100
-        self.cmd_list = stgs.GE_Command_list['data']
-        self.plot = [""] * 5
-
-        logger.debug("Valid inverter commands:")
-        for line in self.cmd_list:
-            logger.debug(str(line['id'])+ "- "+ str(line['name']))
-
-    def get_latest_data(self):
-        """Download latest data from GivEnergy."""
-
-        utc_timenow_mins = t_to_mins(time.strftime("%H:%M:%S", time.gmtime()))
-        if (utc_timenow_mins > self.read_time_mins + 5 or
-            utc_timenow_mins < self.read_time_mins):  # Update every 5 minutes plus day rollover
-
-            url = stgs.GE.url + "system-data/latest"
-            key = stgs.GE.key
-            headers = {
-                'Authorization': 'Bearer  ' + key,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            }
-
-            try:
-                resp = requests.request('GET', url, headers=headers)
-            except requests.exceptions.RequestException as error:
-                logger.error(error)
-                return
-
-            if len(resp.content) > 100:
-                for i in range(4, -1, -1):  # Right shift old data
-                    if i > 0:
-                        self.sys_status[i] = self.sys_status[i - 1]
-                    else:
-                        try:
-                            self.sys_status[i] = \
-                                json.loads(resp.content.decode('utf-8'))['data']
-                        except Exception:
-                            logger.error("Error reading GivEnergy sys status "+ stgs.pg.t_now)
-                            logger.error(resp.content)
-                            self.sys_status[i] = self.sys_status[i + 1]
-                if stgs.pg.loop_counter == 0:  # Pack array on startup
-                    i = 1
-                    while i < 5:
-                        self.sys_status[i] = self.sys_status[0]
-                        i += 1
-                self.read_time_mins = t_to_mins(self.sys_status[0]['time'][11:])
-                self.line_voltage = float(self.sys_status[0]['grid']['voltage'])
-                self.grid_power = -1 * int(self.sys_status[0]['grid']['power'])  # -ve = export
-                self.pv_power = int(self.sys_status[0]['solar']['power'])
-                self.batt_power = int(self.sys_status[0]['battery']['power'])  # -ve = charging
-                self.consumption = int(self.sys_status[0]['consumption'])
-                self.soc = int(self.sys_status[0]['battery']['percent'])
-
-            url = stgs.GE.url + "meter-data/latest"
-            try:
-                resp = requests.request('GET', url, headers=headers, timeout=10)
-            except requests.exceptions.RequestException as error:
-                logger.error(error)
-                return
-
-            if len(resp.content) > 100:
-                for i in range(4, -1, -1):  # Right shift old data
-                    if i > 0:
-                        self.meter_status[i] = self.meter_status[i - 1]
-                    else:
-                        try:
-                            self.meter_status[i] = \
-                                json.loads(resp.content.decode('utf-8'))['data']
-                        except Exception:
-                            logger.error("Error reading GivEnergy meter status "+ stgs.pg.t_now)
-                            logger.error(resp.content)
-                            self.meter_status[i] = self.meter_status[i + 1]
-                if stgs.pg.loop_counter == 0:  # Pack array on startup
-                    i = 1
-                    while i < 5:
-                        self.meter_status[i] = self.meter_status[0]
-                        i += 1
-
-                self.pv_energy = int(self.meter_status[0]['today']['solar'] * 1000)
-
-                # Daily grid energy must be >=0 for PVOutput.org (battery charge >= midnight value)
-                self.grid_energy = max(int(self.meter_status[0]['today']['consumption'] * 1000), 0)
-
-    def get_load_hist(self):
-        """Download historical consumption data from GivEnergy and pack array for next SoC calc"""
-
-        def get_load_hist_day(offset: int):
-            """Get load history for a single day"""
-
-            load_array = [0] * 48
-            day_delta = offset if (stgs.pg.t_now_mins > 1260) else offset + 1  # Today if >9pm
-            day = datetime.strftime(datetime.now() - timedelta(day_delta), '%Y-%m-%d')
-            url = stgs.GE.url + "data-points/"+ day
-            key = stgs.GE.key
-            headers = {
-                'Authorization': 'Bearer  ' + key,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            }
-            params = {
-                'page': '1',
-                'pageSize': '2000'
-            }
-
-            try:
-                resp = requests.request('GET', url, headers=headers, params=params, timeout=10)
-            except requests.exceptions.RequestException as error:
-                logger.error(error)
-                return load_array
-            if resp.status_code != 200:
-                logger.error("Invalid response: "+ str(resp.status_code))
-                return load_array
-
-            if len(resp.content) > 100:
-                history = json.loads(resp.content.decode('utf-8'))
-                i = 6
-                counter = 0
-                current_energy = prev_energy = 0
-                while i < 290:
-                    try:
-                        current_energy = float(history['data'][i]['today']['consumption'])
-                    except Exception:
-                        break
-                    if counter == 0:
-                        load_array[counter] = round(current_energy, 1)
-                    else:
-                        load_array[counter] = round(current_energy - prev_energy, 1)
-                    counter += 1
-                    prev_energy = current_energy
-                    i += 6
-            return load_array
+	@@ -222,7 +222,7 @@ def get_load_hist_day(offset: int):
 
         load_hist_array = [0] * 48
         acc_load = [0] * 48
-        total_weight: int = 0
+        total_weight: float = 0
 
         i: int = 0
         while i < len(stgs.GE.load_hist_weight):
-            if stgs.GE.load_hist_weight[i] > 0:
-                logger.info("Processing load history for day -"+ str(i + 1))
-                load_hist_array = get_load_hist_day(i)
-                j = 0
-                while j < 48:
-                    acc_load[j] += load_hist_array[j] * stgs.GE.load_hist_weight[i]
-                    acc_load[j] = round(acc_load[j], 2)
-                    j += 1
+	@@ -237,19 +237,15 @@ def get_load_hist_day(offset: int):
                 total_weight += stgs.GE.load_hist_weight[i]
                 logger.debug(str(acc_load)+ " total weight: "+ str(total_weight))
             else:
-                logger.info("Skipping load history for day -"+ str(i + 1)+ " (weight = 0)")
+                logger.info("Skipping load history for day -"+ str(i + 1)+ " (weight <= 0)")
             i += 1
+
+        # Avoid DIV/0 if config file contains incorrect weightings
+        if total_weight == 0:
+            logger.error("Configuration error: incorrect daily weightings")
+            total_weight = 1
 
         # Calculate averages and write results
         i = 0
         while i < 48:
             self.base_load[i] = round(acc_load[i]/total_weight, 1)
             i += 1
-
         logger.info("Load Calc Summary: "+ str(self.base_load))
 
     def set_mode(self, cmd: str):
-        """Configures inverter operating mode"""
+	@@ -344,21 +340,10 @@ def set_inverter_register(register: str, value: str):
+            set_inverter_register("64", "00:01")
+            set_inverter_register("65", "23:59")
 
-        def set_inverter_register(register: str, value: str):
-            """Exactly as it says"""
-
-            # Validate command against list in settings
-            cmd_name = ""
-            valid_cmd = False
-            for line in self.cmd_list:
-                if line['id'] == int(register):
-                    cmd_name = line['name']
-                    valid_cmd = True
-                    break
-
-            if valid_cmd is False:
-                logger.critical("write attempt to invalid inverter register: "+ str(register))
-                return
-
-            url = stgs.GE.url + "settings/"+ register + "/write"
-            key = stgs.GE.key
-            headers = {
-                'Authorization': 'Bearer  ' + key,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            }
-            payload = {
-                'value': value
-            }
-            resp = "TEST"
-            if not stgs.pg.test_mode:
-                try:
-                    resp = requests.request('POST', url, headers=headers, json=payload, timeout=10)
-                except requests.exceptions.RequestException as error:
-                    logger.error(error)
-                    return
-                if resp.status_code != 201:
-                    logger.info("Invalid response: "+ str(resp.status_code))
-                    return
-
-            logger.info("Setting Register "+ str(register)+ " ("+ str(cmd_name) + ") to "+
-                        str(value)+ "   Response: "+ str(resp))
-
-            time.sleep(3)  # Allow data on GE server to settle
-
-            # Readback check
-            url = stgs.GE.url + "settings/"+ register + "/read"
-            key = stgs.GE.key
-            headers = {
-                'Authorization': 'Bearer  ' + key,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            }
-            payload = {}
-
-            try:
-                resp = requests.request('POST', url, headers=headers, json=payload, timeout=10)
-            except resp.exceptions.RequestException as error:
-                logger.error(error)
-                return
-            if resp.status_code != 201:
-                logger.error("Invalid response: "+ str(resp.status_code))
-                return
-
-            returned_cmd = json.loads(resp.content.decode('utf-8'))['data']['value']
-            if str(returned_cmd) == str(value):
-                logger.info("Successful register read: "+ str(register)+ " = "+ str(returned_cmd))
-            else:
-                logger.error("Readback failed on GivEnergy API... Expected " +
-                    str(value) + ", Read: "+ str(returned_cmd))
-
-        if cmd == "set_soc":  # Sets target SoC to value
+        elif cmd == "charge_now_soc":
             set_inverter_register("77", str(self.tgt_soc))
-            if stgs.GE.start_time != "":
-                start_time = t_to_hrs(t_to_mins(stgs.GE.start_time))
-                set_inverter_register("64", start_time)
-            if stgs.GE.end_time != "":
-                set_inverter_register("65", stgs.GE.end_time)
-
-        elif cmd == "set_soc_winter":  # Restore default overnight charge params
-            set_inverter_register("77", "100")
-            if stgs.GE.start_time != "":
-                start_time = t_to_hrs(t_to_mins(stgs.GE.start_time))
-                set_inverter_register("64", stgs.GE.start_time)
-            if stgs.GE.end_time_winter != "":
-                set_inverter_register("65", stgs.GE.end_time_winter)
-
-        elif cmd == "charge_now":
-            set_inverter_register("77", "100")
             set_inverter_register("64", "00:01")
             set_inverter_register("65", "23:59")
 
         elif cmd == "pause":
             set_inverter_register("72", "0")
+            set_inverter_register("73", "0")
+
+        elif cmd == "pause_charge":
+            set_inverter_register("72", "0")
+
+        elif cmd == "pause_discharge":
             set_inverter_register("73", "0")
 
         elif cmd == "resume":
