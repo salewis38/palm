@@ -556,7 +556,9 @@ if __name__ == '__main__':
                     inverter.get_load_hist()
                     logger.info("Forecast weighting: "+ str(stgs.Solcast.weight))
                     inverter.set_mode(inverter.compute_tgt_soc(pv_forecast, stgs.Solcast.weight, True))
-                except Exception:
+                except Exception as error:
+                    logger.error(str(type(error).__name__))
+                    logger.error(str(error))
                     logger.error("Warning; unable to set SoC")
 
                 # Send plot data to logfile in CSV format
