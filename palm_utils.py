@@ -469,9 +469,9 @@ class GivEnergyObj:
         # low_soc is the minimum SoC target. Provide more buffer capacity in shoulder months
         # when load is likely to be more variable, e.g. heating
         if stgs.pg.month in stgs.GE.shoulder:
-            low_soc = stgs.GE.max_soc_target
+            low_soc = int(stgs.GE.max_soc_target)
         else:
-            low_soc = stgs.GE.min_soc_target
+            low_soc = int(stgs.GE.min_soc_target)
 
         max_charge_pc = max_charge_pcnt[0]
         min_charge_pc = min_charge_pcnt[0]
