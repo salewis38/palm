@@ -87,7 +87,7 @@ class GivEnergyObj:
         self.consumption: int = 0
         self.soc: int = 0
         self.base_load = stgs.GE.base_load
-        self.tgt_soc = 100
+        self.tgt_soc: int = 100
         self.cmd_list = stgs.GE_Command_list['data']
         self.plot = [""] * 5
 
@@ -393,6 +393,7 @@ class GivEnergyObj:
         if weight > 50:
             wgt_50 = 90 - weight
         else:
+            
             wgt_50 = weight - 10
         wgt_90 = max(0, weight - 50)
 
@@ -400,6 +401,7 @@ class GivEnergyObj:
         logger.info("{:<20} {:>10} {:>10} {:>10} {:>10}  {:>10} {:>10}".format("SoC Calc;",
             "Day", "Hour", "Charge", "Cons", "Gen", "SoC"))
 
+        tgt_soc: int = 100
         # Definitions for export of SoC forecast in chart form
         plot_x = ["Time"]
         plot_y1 = ["Calculated SoC"]
