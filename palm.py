@@ -600,7 +600,7 @@ if __name__ == '__main__':
                     inverter.set_mode("charge_now")
                 elif stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_start) and stgs.pg.month in stgs.GE.shoulder:
                     logger.info("Enabling afternoon battery boost (shoulder)")
-                    inverter.tgt_soc = str(stgs.GE.max_soc_target)
+                    inverter.tgt_soc = int(stgs.GE.max_soc_target)
                     inverter.set_mode("charge_now_soc")
                 if stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_finish):
                     inverter.set_mode("set_soc_winter")  # Set inverter for next timed charge period
