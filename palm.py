@@ -340,6 +340,27 @@ def set_mihome_switch(device_id: str, turn_on: bool) -> bool:
 
 #  End of set_mihome_switch ()
 
+def ev_active() -> bool:
+    """Polls Shelly EM used for monitoring charge power"""
+
+    url:str = str(stgs.Shelly.em0_url)
+    if url == "":
+        return False
+
+    try:
+        resp = requests.put(url, timeout=5)
+        resp.raise_for_status()
+    except requests.exceptions.RequestException as error:
+        logger.error("Missing response from Shelly EM"+ error)
+        return False
+
+    parsed = json.loads(resp.content.decode('utf-8'))
+    logger.debug(str(parsed))
+
+    if parsed['is_valid'] == True and int(parsed['power']) > 500:
+        logger.warning("EV charging detected, power = "+ str(parsed['power']))
+        return True
+    return False
 
 def put_pv_output():
     """Upload generation/consumption data to PVOutput.org."""
@@ -488,7 +509,7 @@ if __name__ == '__main__':
     if MESSAGE != "":
         logger.critical(MESSAGE)
 
-
+    EV_CHARGING_VAR: bool = False  # State of EV charger
     MANUAL_HOLD_VAR: bool = False  # Fix for inverter hunting after hitting SoC target
 
     while True:  # Main Loop
@@ -497,6 +518,10 @@ if __name__ == '__main__':
         stgs.pg.month: str = stgs.pg.long_t_now[3:5]
         stgs.pg.t_now: str = stgs.pg.long_t_now[11:]
         stgs.pg.t_now_mins: int = t_to_mins(stgs.pg.t_now)
+
+        OFF_PEAK_VAR = t_to_mins(stgs.GE.start_time) < stgs.pg.t_now_mins < t_to_mins(stgs.GE.end_time) or \
+                 stgs.pg.t_now_mins > t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) or \
+                 t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) > stgs.pg.t_now_mins
 
         if stgs.pg.loop_counter == 0:  # Initialise
             logger.critical("Initialising at: "+ stgs.pg.long_t_now)
@@ -574,38 +599,53 @@ if __name__ == '__main__':
                     logger.info("PALM Once Mode complete. Exiting...")
                     sys.exit()
 
+            if stgs.pg.once_mode is False:
+
                 # Reset sunrise and sunset for next day
                 env_obj.reset_sr_ss()
 
-            # Pause/resume battery once charged to compensate for AC3 inverter oscillation bug
-            # Covers charge period both in early-morning and spanning midnight
-            if MANUAL_HOLD_VAR is False and \
-                (t_to_mins(stgs.GE.start_time) < stgs.pg.t_now_mins < t_to_mins(stgs.GE.end_time) or \
-                 stgs.pg.t_now_mins > t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) or \
-                 t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) > stgs.pg.t_now_mins):
-                if -2 < (inverter.soc - inverter.tgt_soc) < 2:  # Within 2% avoids sampling issues
-                    inverter.set_mode("pause")
-                    MANUAL_HOLD_VAR = True
-            if stgs.pg.month not in stgs.GE.winter and stgs.pg.t_now_mins == t_to_mins(stgs.GE.end_time) or \
-                stgs.pg.month in stgs.GE.winter and stgs.pg.t_now_mins == t_to_mins(stgs.GE.end_time_winter) or \
-                stgs.pg.t_now_mins + 60 == t_to_mins(stgs.GE.end_time):
-                inverter.set_mode("resume")
-                MANUAL_HOLD_VAR = False
+                # Pause/resume battery once charged to compensate for AC3 inverter oscillation bug
+                # Covers charge period both in early-morning and spanning midnight
+                if MANUAL_HOLD_VAR is False and OFF_PEAK_VAR is True:
+                    if -2 < (inverter.soc - inverter.tgt_soc) < 2:  # Within 2% avoids sampling issues
+                        inverter.set_mode("pause")
+                        MANUAL_HOLD_VAR = True
+                if stgs.pg.month not in stgs.GE.winter and stgs.pg.t_now_mins == t_to_mins(stgs.GE.end_time) or \
+                    stgs.pg.month in stgs.GE.winter and stgs.pg.t_now_mins == t_to_mins(stgs.GE.end_time_winter) or \
+                    stgs.pg.t_now_mins + 60 == t_to_mins(stgs.GE.end_time):
+                    inverter.set_mode("resume")
+                    MANUAL_HOLD_VAR = False
 
-            # Afternoon battery boost in shoulder/winter months to load shift from peak period,
-            # useful for Cosy Octopus, etc
-            if stgs.GE.boost_start != "":  # Only execute if parameter has been set
-                if stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_start) and stgs.pg.month in stgs.GE.winter:
-                    logger.info("Enabling afternoon battery boost (winter)")
-                    inverter.set_mode("charge_now")
-                elif stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_start) and stgs.pg.month in stgs.GE.shoulder:
-                    logger.info("Enabling afternoon battery boost (shoulder)")
-                    inverter.tgt_soc = int(stgs.GE.max_soc_target)
-                    inverter.set_mode("charge_now_soc")
-                if stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_finish):
-                    inverter.set_mode("set_soc_winter")  # Set inverter for next timed charge period
+                # Poll car charger during additional Intelligent Octopus slots
+                # If car is charging, either pause or charge inverter, depending on battery state
+                if OFF_PEAK_VAR is False:
+                    EV_ACTIVE_VAR = ev_active()
+                    if EV_ACTIVE_VAR is True and EV_CHARGING_VAR is False:
+                        EV_CHARGING_VAR = True
+                        if stgs.pg.month in stgs.GE.winter:  # top up battery in parallel with EV charging
+                            logger.info("EV charging active: enabling battery boost")
+                            inverter.set_mode("charge_now")
+                        else:
+                            logger.info("EV charging active: pausing battery discharge")
+                            inverter.set_mode("pause_discharge")
+                    else:  # Check every 15 minutes
+                        if stgs.pg.t_now_mins % 15 == 0 and EV_ACTIVE_VAR is False and EV_CHARGING_VAR is True:
+                            logger.info("EV charging inactive, resuming ECO battery mode")
+                            inverter.set_mode("resume")
 
-            if stgs.pg.once_mode is False:
+                # Afternoon battery boost in shoulder/winter months to load shift from peak period,
+                # useful for Cosy Octopus, etc
+                if stgs.GE.boost_start != "":  # Only execute if parameter has been set
+                    if stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_start) and stgs.pg.month in stgs.GE.winter:
+                        logger.info("Enabling afternoon battery boost (winter)")
+                        inverter.set_mode("charge_now")
+                    elif stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_start) and stgs.pg.month in stgs.GE.shoulder:
+                        logger.info("Enabling afternoon battery boost (shoulder)")
+                        inverter.tgt_soc = int(stgs.GE.max_soc_target)
+                        inverter.set_mode("charge_now_soc")
+                    if stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_finish):
+                        inverter.set_mode("set_soc_winter")  # Set inverter for next timed charge period
+
                 # Update carbon intensity every 15 mins as background task
                 if stgs.CarbonIntensity.enable is True and stgs.pg.loop_counter % 15 == 14:
                     do_get_carbon_intensity = threading.Thread(target=env_obj.update_co2())

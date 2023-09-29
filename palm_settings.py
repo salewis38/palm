@@ -1,6 +1,7 @@
-# version 2023.08.07
+# version 2023.09.29
 """
 Settings file for use with palm.py: Compatible with v0.9, v0.10, v1.0.x and v1.1.x
+2023.09.29: added Shelly power monitor
 """
 ######
 # Do not edit this class definition, it is used to share global variables between components of the PALM system
@@ -125,6 +126,10 @@ class GE:
     # Winter afternoon boost start and end times
     boost_start = "13:03"
     boost_finish = "16:44"
+
+class Shelly:
+    em0_url = "http://192.168.1.21/emeter/0"
+
 
 # MiHome devices are used to activate various loads
 class MiHome:
