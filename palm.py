@@ -623,14 +623,15 @@ if __name__ == '__main__':
                     if EV_ACTIVE_VAR is True and EV_CHARGING_VAR is False:
                         EV_CHARGING_VAR = True
                         if stgs.pg.month in stgs.GE.winter:  # top up battery in parallel with EV charging
-                            logger.info("EV charging active: enabling battery boost")
+                            logger.info("EV charging active: enabling battery boost at"+ stgs.pg.long_t_now)
                             inverter.set_mode("charge_now")
                         else:
-                            logger.info("EV charging active: pausing battery discharge")
+                            logger.info("EV charging active: pausing battery discharge at "+ stgs.pg.long_t_now)
                             inverter.set_mode("pause_discharge")
                     else:  # Check every 15 minutes
                         if stgs.pg.t_now_mins % 15 == 0 and EV_ACTIVE_VAR is False and EV_CHARGING_VAR is True:
-                            logger.info("EV charging inactive, resuming ECO battery mode")
+                            logger.info("EV charging inactive, resuming ECO battery mode at "+ stgs.pg.long_t_now)
+                            EV_CHARGING_VAR = False
                             inverter.set_mode("resume")
 
                 # Afternoon battery boost in shoulder/winter months to load shift from peak period,
