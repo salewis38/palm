@@ -425,8 +425,8 @@ class GivEnergyObj:
         # the battery charge based on forecast generation and historical usage. Capture values
         # for maximum charge and also the minimum charge value at any time before the maximum.
 
-        day = 0
-        diff = 0
+        day: int = 0
+        diff: int = 0
         while day < 2:  # Repeat for tomorrow and next day
             batt_charge[0] = max_charge = min_charge = reserve_energy
             est_gen = 0
@@ -504,9 +504,9 @@ class GivEnergyObj:
             while i < 48:
                 if day == 1 and i == 0:
                     diff = plot_y2[48] - plot_y1[49]
-                if plot_y1[day*48 + i + 1] + diff > 100:  # Correct for SoC > 100%
+                if day == 1 and plot_y1[day*48 + i + 1] + diff > 100:  # Correct for SoC > 100%
                     diff = 100 - plot_y1[day*48 + i]
-                plot_y2.append(plot_y1[day*48 + i + 1] + diff)
+                plot_y2.append(max(0, min(100, plot_y1[day*48 + i + 1] + diff)))
                 i += 1
             day += 1
 
