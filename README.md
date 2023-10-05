@@ -14,7 +14,7 @@ It performs the following functions:
 
 * a simple sequencer for load management, based on time, temperature, battery charge and CO2/kWh
 
-UPDATE 18/Aug/2023
+**UPDATE 18/Aug/2023**
 File palm_soc.py is used by the GivTCP add-on to Home Assistant. The main file for execution outside the HA environment is palm.py. This includes ONCE_MODE "palm.py -o" to run through the overnight calculations and then exit.
 
 To simplify code maintenance:
@@ -29,13 +29,15 @@ The conservativeness of the forecast works for me and is set at 35%. It can be a
 
 PALM now includes an Overmorrow function to increase self-consumption in changeable weather.
 
-UPDATE 04/Oct/2023
+**UPDATE 04/Oct/2023**
 Second forecast calculated an hour before end of off-peak period to account for changes in forecast.
+
 Afternoon Cosy Octopus charge period included
+
 Added EV monitoring functionality (requires separate power meter) for compatibility with Intelligent Octopus. Battery can either pause or charge in parallel with car during daytime charging slots.
+
 Coming soon: additional relay control for heating boost, etc during extra slots.
 
-Compatibility 
 
 INSTALLATION INSTRUCTIONS FOR LINUX-BASED SYSTEMS, INCLUDING HOW TO RUN AS A SERVICE ON RASPBERRY PI
 1. Create local directories:
