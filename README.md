@@ -1,4 +1,4 @@
-# palm
+# PALM
 PV Automated Load Manager
 
 This software forms the basis of a simple home automation system, using the following hardware:
@@ -28,6 +28,14 @@ PALM now outputs a set of plot data that summarises the SoC calculation. To gene
 The conservativeness of the forecast works for me and is set at 35%. It can be altered by changing the "Solcast.weight" parameter in settings.py 
 
 PALM now includes an Overmorrow function to increase self-consumption in changeable weather.
+
+UPDATE 04/Oct/2023
+Second forecast calculated an hour before end of off-peak period to account for changes in forecast.
+Afternoon Cosy Octopus charge period included
+Added EV monitoring functionality (requires separate power meter) for compatibility with Intelligent Octopus. Battery can either pause or charge in parallel with car during daytime charging slots.
+Coming soon: additional relay control for heating boost, etc during extra slots.
+
+Compatibility 
 
 INSTALLATION INSTRUCTIONS FOR LINUX-BASED SYSTEMS, INCLUDING HOW TO RUN AS A SERVICE ON RASPBERRY PI
 1. Create local directories:
