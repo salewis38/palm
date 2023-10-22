@@ -49,8 +49,9 @@ logger = logging.getLogger(__name__)
 # v0.10.0   21/Jun/23 Added multi-day averaging for usage calcs
 # v1.0.0    15/Jul/23 Random start time, Solcast data correction, IO compatibility, 48-hour fcast
 # v1.1.0    06/Aug/23 Split out generic functions as palm_utils.py (this file), remove random start time (add comment in settings instead) 
+# v1.1.1    22/Oct/23 Updated resume command to operate properly with IO and Cosy settings
 
-PALM_VERSION = "v1.1.0"
+PALM_VERSION = "v1.1.1"
 # -*- coding: utf-8 -*-
 # pylint: disable=logging-not-lazy
 # pylint: disable=consider-using-f-string
@@ -87,7 +88,7 @@ class GivEnergyObj:
         self.consumption: int = 0
         self.soc: int = 0
         self.base_load = stgs.GE.base_load
-        self.tgt_soc: int = 100
+        self.tgt_soc = 100
         self.cmd_list = stgs.GE_Command_list['data']
         self.plot = [""] * 5
 
@@ -362,6 +363,8 @@ class GivEnergyObj:
         elif cmd == "resume":
             set_inverter_register("72", "3000")
             set_inverter_register("73", "3000")
+            set_inverter_register("66", "True")
+            self.set_mode("set_soc")
 
         elif cmd == "test":
             logger.debug("Test set_mode")
@@ -393,7 +396,6 @@ class GivEnergyObj:
         if weight > 50:
             wgt_50 = 90 - weight
         else:
-            
             wgt_50 = weight - 10
         wgt_90 = max(0, weight - 50)
 
@@ -401,7 +403,6 @@ class GivEnergyObj:
         logger.info("{:<20} {:>10} {:>10} {:>10} {:>10}  {:>10} {:>10}".format("SoC Calc;",
             "Day", "Hour", "Charge", "Cons", "Gen", "SoC"))
 
-        tgt_soc: int = 100
         # Definitions for export of SoC forecast in chart form
         plot_x = ["Time"]
         plot_y1 = ["Calculated SoC"]
@@ -506,7 +507,7 @@ class GivEnergyObj:
                     diff = plot_y2[48] - plot_y1[49]
                 if day == 1 and plot_y1[day*48 + i + 1] + diff > 100:  # Correct for SoC > 100%
                     diff = 100 - plot_y1[day*48 + i]
-                plot_y2.append(max(0, min(100, plot_y1[day*48 + i + 1] + diff)))
+                plot_y2.append(plot_y1[day*48 + i + 1] + diff)
                 i += 1
             day += 1
 

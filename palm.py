@@ -50,6 +50,7 @@ import palm_settings as stgs
 # v0.10.0   21/Jun/23 Added multi-day averaging for usage calcs
 # v1.0.0    15/Jul/23 Random start time, Solcast data correction, IO compatibility, 48-hour fcast
 # v1.1.0    06/Aug/23 Split out generic functions as palm_utils.py
+# v1.1.1    22/Oct/23 ability to use extra IO slots incorporated
 
 # NOTE: To enable plot capability, uncomment all lines begiinging with "##"
 
@@ -211,7 +212,6 @@ class EnvObj:
         except requests.exceptions.RequestException as error:
             logger.warning("Warning: Problem obtaining CO2 intensity: "+ str(error))
             return
-
         if len(resp.content) < 50:
             logger.warning("Warning: Carbon intensity data missing/short")
             return
@@ -329,7 +329,7 @@ def set_mihome_switch(device_id: str, turn_on: bool) -> bool:
         resp = requests.put(url, auth=(user_id, api_key), json=payload, timeout=5)
         resp.raise_for_status()
     except requests.exceptions.RequestException as error:
-        logger.error(error)
+        logger.error(str(error))
         return False
 
     parsed = json.loads(resp.content.decode('utf-8'))
@@ -338,10 +338,60 @@ def set_mihome_switch(device_id: str, turn_on: bool) -> bool:
     logger.warning("Failure..."+ url + device_id)
     return False
 
-#  End of set_mihome_switch ()
+#  End of set_mihome_switch()
+
+# A Shelly switch is used to override the UFH thermostat in winter months during IO daytime periods
+# The switch is connected in the "on" line between the thermostat and the UFH controller
+
+def set_shelly_switch(turn_on: bool) -> bool:
+    """Operates a Shelly switch on/off."""
+
+    if turn_on:
+        sw_cmd = "on"
+    else:
+        sw_cmd = "off"
+
+    url:str = stgs.Shelly.sw1_url + "relay/0/?turn=" + sw_cmd
+
+    try:
+        resp = requests.put(url, timeout=5)
+        resp.raise_for_status()
+    except requests.exceptions.RequestException as error:
+        logger.error(str(error))
+        return False
+
+    return True
+
+#  End of set_shelly_switch()
+
+
+def read_shelly_switch() -> str:
+    """Reads Shelly switch value"""
+
+    url:str = str(stgs.Shelly.sw1_url) + "switch/0"
+
+    try:
+        resp = requests.put(url, timeout=5)
+        resp.raise_for_status()
+    except requests.exceptions.RequestException as error:
+        logger.error("Missing response from Shelly EM"+ str(error))
+        return "Error"
+
+    parsed = json.loads(resp.content.decode('utf-8'))
+    logger.debug(str(parsed))
+
+    if parsed['ison'] is True:
+        if parsed['source'] == "http":  # PALM was last source of demand
+            logger.warning("Info: no thermostat demand sensed since last PALM action")
+            return "On-http"
+        return "On-stat"
+    return "Off"
+
+# End of read_shelly_switch()
+
 
 def ev_active() -> bool:
-    """Polls Shelly EM used for monitoring charge power"""
+    """Polls Shelly EM used for monitoring EV charger power"""
 
     url:str = str(stgs.Shelly.em0_url)
     if url == "":
@@ -351,16 +401,19 @@ def ev_active() -> bool:
         resp = requests.put(url, timeout=5)
         resp.raise_for_status()
     except requests.exceptions.RequestException as error:
-        logger.error("Missing response from Shelly EM"+ error)
+        logger.error("Missing response from Shelly EM"+ str(error))
         return False
 
     parsed = json.loads(resp.content.decode('utf-8'))
     logger.debug(str(parsed))
 
-    if parsed['is_valid'] == True and int(parsed['power']) > 500:
+    if parsed['is_valid'] is True and int(parsed['power']) > 500:
         logger.warning("EV charging detected, power = "+ str(parsed['power']))
         return True
     return False
+
+# End of ev_active()
+
 
 def put_pv_output():
     """Upload generation/consumption data to PVOutput.org."""
@@ -519,6 +572,7 @@ if __name__ == '__main__':
         stgs.pg.t_now: str = stgs.pg.long_t_now[11:]
         stgs.pg.t_now_mins: int = t_to_mins(stgs.pg.t_now)
 
+        # Boolean value, True if current time is in Off-Peak window. Simplifies logic below
         OFF_PEAK_VAR = t_to_mins(stgs.GE.start_time) < stgs.pg.t_now_mins < t_to_mins(stgs.GE.end_time) or \
                  stgs.pg.t_now_mins > t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) or \
                  t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) > stgs.pg.t_now_mins
@@ -622,20 +676,30 @@ if __name__ == '__main__':
                     EV_ACTIVE_VAR = ev_active()
                     if EV_ACTIVE_VAR is True and EV_CHARGING_VAR is False:
                         EV_CHARGING_VAR = True
-                        if stgs.pg.month in stgs.GE.winter:  # top up battery in parallel with EV charging
-                            logger.info("EV charging active: enabling battery boost at"+ stgs.pg.long_t_now)
+                        if stgs.pg.month in stgs.GE.winter:  # Fill battery in parallel with EV charging
+                            logger.info("EV charging active: enabling battery boost at "+ stgs.pg.long_t_now)
                             inverter.set_mode("charge_now")
-                        else:
+                            if env_obj.temp_deg_c < 15:  # Force heating on (or other loadds)
+                                set_shelly_switch(True)
+                        elif stgs.pg.month in stgs.GE.shoulder:  # Top up battery if needed
+                            logger.info("EV charging active: pausing battery discharge at "+ stgs.pg.long_t_now)
+                            if inverter.soc < stgs.GE.max_soc_target:
+                                inverter.tgt_soc = stgs.GE.max_soc_target
+                                inverter.set_mode("charge_now_soc")
+                            else:
+                                inverter.set_mode("pause_discharge")
+                        else:  # Put battery on hold during EV charging
                             logger.info("EV charging active: pausing battery discharge at "+ stgs.pg.long_t_now)
                             inverter.set_mode("pause_discharge")
-                    else:  # Check every 15 minutes
-                        if stgs.pg.t_now_mins % 15 == 0 and EV_ACTIVE_VAR is False and EV_CHARGING_VAR is True:
+                    else:  # Check at the end of every 30-minute metering period
+                        if stgs.pg.t_now_mins % 30 == 0 and EV_ACTIVE_VAR is False and EV_CHARGING_VAR is True:
                             logger.info("EV charging inactive, resuming ECO battery mode at "+ stgs.pg.long_t_now)
                             EV_CHARGING_VAR = False
                             inverter.set_mode("resume")
+                            if read_shelly_switch() == "On-http":  # Turn off heating if thermostat not active
+                                set_shelly_switch(False)
 
-                # Afternoon battery boost in shoulder/winter months to load shift from peak period,
-                # useful for Cosy Octopus, etc
+                # Afternoon battery boost in shoulder/winter months to load shift from peak period for Cosy Octopus
                 if stgs.GE.boost_start != "":  # Only execute if parameter has been set
                     if stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_start) and stgs.pg.month in stgs.GE.winter:
                         logger.info("Enabling afternoon battery boost (winter)")
@@ -643,9 +707,9 @@ if __name__ == '__main__':
                     elif stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_start) and stgs.pg.month in stgs.GE.shoulder:
                         logger.info("Enabling afternoon battery boost (shoulder)")
                         inverter.tgt_soc = int(stgs.GE.max_soc_target)
-                        inverter.set_mode("charge_now_soc")
+                        inverter.set_mode("charge_now_soc")  # Also allows continued discharge to target SoC
                     if stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_finish):
-                        inverter.set_mode("set_soc_winter")  # Set inverter for next timed charge period
+                        inverter.set_mode("resume")
 
                 # Update carbon intensity every 15 mins as background task
                 if stgs.CarbonIntensity.enable is True and stgs.pg.loop_counter % 15 == 14:
