@@ -49,9 +49,8 @@ logger = logging.getLogger(__name__)
 # v0.10.0   21/Jun/23 Added multi-day averaging for usage calcs
 # v1.0.0    15/Jul/23 Random start time, Solcast data correction, IO compatibility, 48-hour fcast
 # v1.1.0    06/Aug/23 Split out generic functions as palm_utils.py (this file), remove random start time (add comment in settings instead) 
-# v1.1.1    22/Oct/23 Updated resume command to operate properly with IO and Cosy settings
 
-PALM_VERSION = "v1.1.1"
+PALM_VERSION = "v1.1.0"
 # -*- coding: utf-8 -*-
 # pylint: disable=logging-not-lazy
 # pylint: disable=consider-using-f-string
@@ -363,7 +362,6 @@ class GivEnergyObj:
         elif cmd == "resume":
             set_inverter_register("72", "3000")
             set_inverter_register("73", "3000")
-            set_inverter_register("66", "True")
             self.set_mode("set_soc")
 
         elif cmd == "test":
@@ -426,8 +424,8 @@ class GivEnergyObj:
         # the battery charge based on forecast generation and historical usage. Capture values
         # for maximum charge and also the minimum charge value at any time before the maximum.
 
-        day: int = 0
-        diff: int = 0
+        day = 0
+        diff = 0
         while day < 2:  # Repeat for tomorrow and next day
             batt_charge[0] = max_charge = min_charge = reserve_energy
             est_gen = 0
@@ -505,7 +503,7 @@ class GivEnergyObj:
             while i < 48:
                 if day == 1 and i == 0:
                     diff = plot_y2[48] - plot_y1[49]
-                if day == 1 and plot_y1[day*48 + i + 1] + diff > 100:  # Correct for SoC > 100%
+                if plot_y1[day*48 + i + 1] + diff > 100:  # Correct for SoC > 100%
                     diff = 100 - plot_y1[day*48 + i]
                 plot_y2.append(plot_y1[day*48 + i + 1] + diff)
                 i += 1

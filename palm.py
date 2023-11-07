@@ -50,7 +50,6 @@ import palm_settings as stgs
 # v0.10.0   21/Jun/23 Added multi-day averaging for usage calcs
 # v1.0.0    15/Jul/23 Random start time, Solcast data correction, IO compatibility, 48-hour fcast
 # v1.1.0    06/Aug/23 Split out generic functions as palm_utils.py
-# v1.1.1    22/Oct/23 ability to use extra IO slots incorporated
 
 # NOTE: To enable plot capability, uncomment all lines begiinging with "##"
 
@@ -212,6 +211,7 @@ class EnvObj:
         except requests.exceptions.RequestException as error:
             logger.warning("Warning: Problem obtaining CO2 intensity: "+ str(error))
             return
+
         if len(resp.content) < 50:
             logger.warning("Warning: Carbon intensity data missing/short")
             return
@@ -572,7 +572,6 @@ if __name__ == '__main__':
         stgs.pg.t_now: str = stgs.pg.long_t_now[11:]
         stgs.pg.t_now_mins: int = t_to_mins(stgs.pg.t_now)
 
-        # Boolean value, True if current time is in Off-Peak window. Simplifies logic below
         OFF_PEAK_VAR = t_to_mins(stgs.GE.start_time) < stgs.pg.t_now_mins < t_to_mins(stgs.GE.end_time) or \
                  stgs.pg.t_now_mins > t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) or \
                  t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) > stgs.pg.t_now_mins
@@ -664,9 +663,9 @@ if __name__ == '__main__':
                     if -2 < (inverter.soc - inverter.tgt_soc) < 2:  # Within 2% avoids sampling issues
                         inverter.set_mode("pause")
                         MANUAL_HOLD_VAR = True
-                if stgs.pg.month not in stgs.GE.winter and stgs.pg.t_now_mins == t_to_mins(stgs.GE.end_time) or \
-                    stgs.pg.month in stgs.GE.winter and stgs.pg.t_now_mins == t_to_mins(stgs.GE.end_time_winter) or \
-                    stgs.pg.t_now_mins + 60 == t_to_mins(stgs.GE.end_time):
+                if stgs.pg.month in stgs.GE.winter and stgs.pg.t_now_mins == t_to_mins(stgs.GE.end_time_winter) or \
+                    stgs.pg.month not in stgs.GE.winter and (stgs.pg.t_now_mins == t_to_mins(stgs.GE.end_time) or \
+                    stgs.pg.t_now_mins + 60 == t_to_mins(stgs.GE.end_time)):
                     inverter.set_mode("resume")
                     MANUAL_HOLD_VAR = False
 
@@ -679,7 +678,7 @@ if __name__ == '__main__':
                         if stgs.pg.month in stgs.GE.winter:  # Fill battery in parallel with EV charging
                             logger.info("EV charging active: enabling battery boost at "+ stgs.pg.long_t_now)
                             inverter.set_mode("charge_now")
-                            if env_obj.temp_deg_c < 15:  # Force heating on (or other loadds)
+                            if env_obj.temp_deg_c < 15:
                                 set_shelly_switch(True)
                         elif stgs.pg.month in stgs.GE.shoulder:  # Top up battery if needed
                             logger.info("EV charging active: pausing battery discharge at "+ stgs.pg.long_t_now)
@@ -699,7 +698,8 @@ if __name__ == '__main__':
                             if read_shelly_switch() == "On-http":  # Turn off heating if thermostat not active
                                 set_shelly_switch(False)
 
-                # Afternoon battery boost in shoulder/winter months to load shift from peak period for Cosy Octopus
+                # Afternoon battery boost in shoulder/winter months to load shift from peak period,
+                # useful for Cosy Octopus, etc
                 if stgs.GE.boost_start != "":  # Only execute if parameter has been set
                     if stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_start) and stgs.pg.month in stgs.GE.winter:
                         logger.info("Enabling afternoon battery boost (winter)")
@@ -707,9 +707,12 @@ if __name__ == '__main__':
                     elif stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_start) and stgs.pg.month in stgs.GE.shoulder:
                         logger.info("Enabling afternoon battery boost (shoulder)")
                         inverter.tgt_soc = int(stgs.GE.max_soc_target)
-                        inverter.set_mode("charge_now_soc")  # Also allows continued discharge to target SoC
+                        inverter.set_mode("charge_now_soc")
                     if stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_finish):
-                        inverter.set_mode("resume")
+                        if stgs.pg.month in stgs.GE.winter:
+                            inverter.set_mode("set_soc_winter")  # Set inverter for next timed charge period
+                        else:
+                            inverter.set_mode("set_soc")  # Set inverter for next timed charge period
 
                 # Update carbon intensity every 15 mins as background task
                 if stgs.CarbonIntensity.enable is True and stgs.pg.loop_counter % 15 == 14:
