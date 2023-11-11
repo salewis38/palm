@@ -88,7 +88,7 @@ class GivEnergyObj:
         self.consumption: int = 0
         self.soc: int = 0
         self.base_load = stgs.GE.base_load
-        self.tgt_soc = 100
+        self.tgt_soc: int = 100
         self.cmd_list = stgs.GE_Command_list['data']
         self.plot = [""] * 5
 
@@ -228,7 +228,7 @@ class GivEnergyObj:
         i: int = 0
         while i < len(stgs.GE.load_hist_weight):
             if stgs.GE.load_hist_weight[i] > 0:
-                logger.info("Processing load history for day -"+ str(i + 1))
+                logger.debug("Processing load history for day -"+ str(i + 1))
                 load_hist_array = get_load_hist_day(i)
                 j = 0
                 while j < 48:
@@ -238,7 +238,7 @@ class GivEnergyObj:
                 total_weight += stgs.GE.load_hist_weight[i]
                 logger.debug(str(acc_load)+ " total weight: "+ str(total_weight))
             else:
-                logger.info("Skipping load history for day -"+ str(i + 1)+ " (weight <= 0)")
+                logger.debug("Skipping load history for day -"+ str(i + 1)+ " (weight <= 0)")
             i += 1
 
         # Avoid DIV/0 if config file contains incorrect weightings
@@ -251,7 +251,7 @@ class GivEnergyObj:
         while i < 48:
             self.base_load[i] = round(acc_load[i]/total_weight, 1)
             i += 1
-        logger.info("Load Calc Summary: "+ str(self.base_load))
+        logger.debug("Load Calc Summary: "+ str(self.base_load))
 
     def set_mode(self, cmd: str):
         """Configures inverter operating mode"""
