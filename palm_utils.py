@@ -48,9 +48,10 @@ logger = logging.getLogger(__name__)
 # ...
 # v0.10.0   21/Jun/23 Added multi-day averaging for usage calcs
 # v1.0.0    15/Jul/23 Random start time, Solcast data correction, IO compatibility, 48-hour fcast
-# v1.1.0    06/Aug/23 Split out generic functions as palm_utils.py (this file), remove random start time (add comment in settings instead) 
+# v1.1.0    06/Aug/23 Split out generic functions as palm_utils.py, remove randomised start time
+# v1.1.0a   11/Nov/23 Fixed resume operation after daytime charging, bugfix for chart generation
 
-PALM_VERSION = "v1.1.0"
+PALM_VERSION = "v1.1.0a"
 # -*- coding: utf-8 -*-
 # pylint: disable=logging-not-lazy
 # pylint: disable=consider-using-f-string
@@ -504,7 +505,7 @@ class GivEnergyObj:
                 if day == 1 and i == 0:
                     diff = plot_y2[48] - plot_y1[49]
                 if plot_y1[day*48 + i + 1] + diff > 100:  # Correct for SoC > 100%
-                    diff = 100 - plot_y1[day*48 + i]
+                    diff = 100 - plot_y1[day*48 + i + 1]  # Bugfix v1.1.0a
                 plot_y2.append(plot_y1[day*48 + i + 1] + diff)
                 i += 1
             day += 1
@@ -597,11 +598,13 @@ class SolcastObj:
         pv_est90 = [0] * 10080
 
         if stgs.Solcast.url_sw != "":  # Two arrays are specified
-            forecast_lines = min(len(solcast_data_1['forecasts']), len(solcast_data_2['forecasts'])) - 1
+            forecast_lines = min(len(solcast_data_1['forecasts']), \
+                len(solcast_data_2['forecasts'])) - 1
         else:
             forecast_lines = len(solcast_data_1['forecasts']) - 1
         interval = int(solcast_data_1['forecasts'][0]['period'][2:4])
-        solcast_offset = t_to_mins(solcast_data_1['forecasts'][0]['period_end'][11:16]) - interval - 60
+        solcast_offset = t_to_mins(solcast_data_1['forecasts'][0]['period_end'][11:16]) \
+            - interval - 60
 
         # Check for BST and convert to local time to align with GivEnergy data
         if time.strftime("%z", time.localtime()) == "+0100":
