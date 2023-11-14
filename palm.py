@@ -640,7 +640,7 @@ if __name__ == '__main__':
                     logger.error("Warning; unable to set SoC")
 
                 # Send plot data to logfile in CSV format
-                logger.info("SoC Chart Data - Start")
+                logger.info("SoC Chart Data - Start. Paste these lines into a spreadsheet to create a plot of SoC")
                 i = 0
                 while i < 5:
                     logger.info(inverter.plot[i])
