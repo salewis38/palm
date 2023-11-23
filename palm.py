@@ -50,10 +50,11 @@ import palm_settings as stgs
 # v0.10.0   21/Jun/23 Added multi-day averaging for usage calcs
 # v1.0.0    15/Jul/23 Random start time, Solcast data correction, IO compatibility, 48-hour fcast
 # v1.1.0    06/Aug/23 Split out generic functions as palm_utils.py
+# v1.1.1    19/Nov/23 Updated to Shelly Gen 2 switch, improved readability
 
-# NOTE: To enable plot capability, uncomment all lines begiinging with "##"
+# NOTE: To enable plot capability, uncomment all lines beginning with "##"
 
-PALM_VERSION = "v1.1.0"
+PALM_VERSION = "v1.1.1"
 # -*- coding: utf-8 -*-
 # pylint: disable=logging-not-lazy
 # pylint: disable=consider-using-f-string
@@ -65,7 +66,7 @@ class LoadObj:
 
         # Pull in data from Load_Config
         self.base_priority: int = load_i + 1  # Sets the initial priority for load
-        self.load_record = l_payload  # Pulls in load configuratio details
+        self.load_record = l_payload  # Pulls in load configuration details
         self.curr_state: str = "OFF"
         self.prev_state: str = "OFF"
         self.eti: int = 0  # Total minutes on in day
@@ -264,7 +265,7 @@ class EnvObj:
                       str(env_obj.virt_sr_time)+ " VSS: "+ str(env_obj.virt_ss_time))
             elif (inverter.sys_status[0]['solar']['power'] > 2 * pwr_threshold >
                 inverter.sys_status[1]['solar']['power']):
-                # False alarm - sun back up (added hyteresis to threshold)
+                # False alarm - sun back up (added hysteresis to threshold)
                 new_virt_sr_ss = True
                 self.virt_ss_time = env_obj.ss_time
                 logger.info('VSunrise/set (False alarm) VSR:' +
@@ -344,7 +345,7 @@ def set_mihome_switch(device_id: str, turn_on: bool) -> bool:
 # The switch is connected in the "on" line between the thermostat and the UFH controller
 
 def set_shelly_switch(turn_on: bool) -> bool:
-    """Operates a Shelly switch on/off."""
+    """Operates a Shelly Plus 1 (Gen 2) switch on/off."""
 
     if turn_on:
         sw_cmd = "on"
@@ -366,53 +367,64 @@ def set_shelly_switch(turn_on: bool) -> bool:
 
 
 def read_shelly_switch() -> str:
-    """Reads Shelly switch value"""
+    """Reads Shelly Plus 1 (Gen 2) switch value"""
 
-    url:str = str(stgs.Shelly.sw1_url) + "switch/0"
+    url:str = str(stgs.Shelly.sw1_url) + "rpc/Input.GetStatus?id=0"
 
     try:
-        resp = requests.put(url, timeout=5)
+        resp = requests.get(url, timeout=5)
         resp.raise_for_status()
     except requests.exceptions.RequestException as error:
-        logger.error("Missing response from Shelly EM"+ str(error))
+        logger.error("Missing response from Shelly EM: "+ str(error))
         return "Error"
 
     parsed = json.loads(resp.content.decode('utf-8'))
     logger.debug(str(parsed))
 
-    if parsed['ison'] is True:
-        if parsed['source'] == "http":  # PALM was last source of demand
-            logger.warning("Info: no thermostat demand sensed since last PALM action")
-            return "On-http"
+    if parsed['state'] is True:
         return "On-stat"
     return "Off"
 
 # End of read_shelly_switch()
 
+class EVObj:
+    """Reports status and stores instantaneous measured power to EV using Shelly EM"""
 
-def ev_active() -> bool:
-    """Polls Shelly EM used for monitoring EV charger power"""
+    def __init__(self):
+        self.power: int = 0
+        self.active_now: bool = False
+        self.active_last: bool = False
+        self.active: bool = False
+        self.confirmed_active: bool = False
 
-    url:str = str(stgs.Shelly.em0_url)
-    if url == "":
-        return False
+    def charging(self) -> bool:
+        """Polls Shelly EM and updates status"""
 
-    try:
-        resp = requests.put(url, timeout=5)
-        resp.raise_for_status()
-    except requests.exceptions.RequestException as error:
-        logger.error("Missing response from Shelly EM"+ str(error))
-        return False
+        url:str = str(stgs.Shelly.em0_url)
+        if url == "":
+            return False
 
-    parsed = json.loads(resp.content.decode('utf-8'))
-    logger.debug(str(parsed))
+        try:
+            resp = requests.put(url, timeout=5)
+            resp.raise_for_status()
+        except requests.exceptions.RequestException as error:
+            logger.error("Missing response from Shelly EM"+ str(error))
+            return False
 
-    if parsed['is_valid'] is True and int(parsed['power']) > 500:
-        logger.warning("EV charging detected, power = "+ str(parsed['power']))
-        return True
-    return False
+        parsed = json.loads(resp.content.decode('utf-8'))
+        logger.debug(str(parsed))
 
-# End of ev_active()
+        if parsed['is_valid'] is True:
+            self.power = int(parsed['power'])
+            self.active_last = self.active_now
+            self.active_now = self.power > 500
+            if self.active_now is True and self.active_last is False:  # Edge detect
+                logger.warning("EV charging detected, power = "+ str(parsed['power']))
+        self.active = self.active_last and self.active_now
+        return self.active
+    # End of charging()
+
+# End of EVObj
 
 
 def put_pv_output():
@@ -444,7 +456,7 @@ def put_pv_output():
         "v4"  : load_pwr,
         "v5"  : env_obj.temp_deg_c,
         "v6"  : inverter.line_voltage,
-        "v7"  : "",
+        "v7"  : ev.power,
         "v8"  : batt_power_out,
         "v9"  : env_obj.co2_intensity,
         "v10" : CO2_USAGE_VAR,
@@ -528,6 +540,81 @@ def balance_loads():
         #self.pvo_tstamp: int = 0  # Records value of loop_counter when PV data last written
         #self.palm_version: str = PALM_VERSION
 
+#  End of PalmStgsObj
+
+class EventsObj:
+    """Definitions used to trigger events each minute in scheduler. Less messy this way """
+
+    def __init__(self):
+        self.shoulder: bool = False
+        self.winter: bool = False
+        self.off_pk: bool = False
+        self.off_pk_ending: bool = False
+        self.off_pk_end: bool = False
+        self.pm_boost_start: bool = False
+        self.pm_boost_end: bool = False
+        self.update_pv_fcast: bool = False
+        self.update_soc: bool = False
+        self.post_pvoutput: bool = False
+        self.update_carbon_intensity: bool = False
+        self.update_weather: bool = False
+
+    def update(self):
+        """Values are updated every minute for use by logic in main code loop"""
+        t_now = stgs.pg.t_now_mins
+        t_plus_hr = t_now + 60 % 1440
+
+        self.shoulder = stgs.pg.month in stgs.GE.shoulder
+        self.winter = stgs.pg.month in stgs.GE.winter
+
+        # True if current time is within off-peak window, needs to consider spanning midnight
+        self.off_pk = t_to_mins(stgs.GE.start_time) < t_now < t_to_mins(stgs.GE.end_time) or \
+            t_now > t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) or \
+            t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) > t_now
+
+        # Flag 1 hour before end of off-peak
+        self.off_pk_ending = self.winter is True and \
+            t_plus_hr == t_to_mins(stgs.GE.end_time_winter) or \
+            self.winter is False and t_plus_hr == t_to_mins(stgs.GE.end_time)
+
+        # Flag at end of off-peak
+        self.off_pk_end = \
+            self.winter is True and t_now == t_to_mins(stgs.GE.end_time_winter) or \
+            self.winter is False and t_now == t_to_mins(stgs.GE.end_time)
+
+        self.pm_boost_start = stgs.GE.boost_start != "" and \
+            self.winter is True or self.shoulder is True and \
+            t_now == t_to_mins(stgs.GE.boost_start)
+
+        self.pm_boost_end = stgs.GE.boost_start != "" and \
+            self.winter is True or self.shoulder is True and \
+            t_now == t_to_mins(stgs.GE.boost_finish)
+
+        # 5 minutes before off-peak start and 1hr before off-peak ends
+        self.update_pv_fcast = \
+            ((stgs.pg.test_mode or stgs.pg.once_mode) and stgs.pg.loop_counter == 1) or \
+            t_now == (t_to_mins(stgs.GE.start_time) + 1435) % 1440 or \
+            t_now == (t_to_mins(stgs.GE.end_time) + 1375) % 1440
+
+        # 2 minutes before off-peak start for setting overnight battery charging target
+        # Repeat 60 mins before end of off-peak in case of Solcast fine-tuning
+        self.update_soc = \
+            ((stgs.pg.test_mode or stgs.pg.once_mode) and stgs.pg.loop_counter == 2) or \
+            t_now == (t_to_mins(stgs.GE.start_time) + 1438) % 1440 or \
+            t_now == (t_to_mins(stgs.GE.end_time) + 1380) % 1440
+
+        # Publish data to PVOutput.org every 5 minutes (or 5 cycles as a catch-all)
+        self.post_pvoutput = stgs.PVOutput.enable is True and \
+                    (stgs.pg.test_mode or t_now % 5 == 3 or \
+                    stgs.pg.loop_counter > stgs.pg.pvo_tstamp + 4)
+
+        # Update carbon intensity and weather every 15 mins
+        self.update_carbon_intensity = \
+            stgs.CarbonIntensity.enable is True and stgs.pg.loop_counter % 15 == 14
+        self.update_weather = \
+            stgs.OpenWeatherMap.enable is True and stgs.pg.loop_counter % 15 == 14
+
+# End of EventsObj
 
 if __name__ == '__main__':
 
@@ -562,7 +649,7 @@ if __name__ == '__main__':
     if MESSAGE != "":
         logger.critical(MESSAGE)
 
-    EV_CHARGING_VAR: bool = False  # State of EV charger
+    EV_ACTIVE_VAR: bool = False
     MANUAL_HOLD_VAR: bool = False  # Fix for inverter hunting after hitting SoC target
 
     while True:  # Main Loop
@@ -572,14 +659,16 @@ if __name__ == '__main__':
         stgs.pg.t_now: str = stgs.pg.long_t_now[11:]
         stgs.pg.t_now_mins: int = t_to_mins(stgs.pg.t_now)
 
-        OFF_PEAK_VAR = t_to_mins(stgs.GE.start_time) < stgs.pg.t_now_mins < t_to_mins(stgs.GE.end_time) or \
-                 stgs.pg.t_now_mins > t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) or \
-                 t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) > stgs.pg.t_now_mins
-
         if stgs.pg.loop_counter == 0:  # Initialise
             logger.critical("Initialising at: "+ stgs.pg.long_t_now)
             logger.critical("")
             sys.stdout.flush()
+
+            # Initialise event semaphores
+            events: EventsObj = EventsObj()
+
+            # Object to capture EV charging status/current
+            ev: EVObj = EVObj()
 
             # GivEnergy power object
             inverter: GivEnergyObj = GivEnergyObj()
@@ -595,7 +684,7 @@ if __name__ == '__main__':
             pv_forecast: SolcastObj = SolcastObj()
 
             # Misc environmental data: weather, CO2, etc
-            CO2_USAGE_VAR: int = 200
+            CO2_USAGE_VAR: int = 0
             env_obj: EnvObj = EnvObj()
             if stgs.CarbonIntensity.enable is True:
                 env_obj.update_co2()
@@ -614,33 +703,27 @@ if __name__ == '__main__':
 
         else:
             # Schedule activities at specific intervals
+            events.update()
 
-            # 5 minutes before off-peak start for next day's forecast and 1hr before off-peak ends
-            if ((stgs.pg.test_mode or stgs.pg.once_mode) and stgs.pg.loop_counter == 1) or \
-                stgs.pg.t_now_mins == (t_to_mins(stgs.GE.start_time) + 1435) % 1440 or \
-                stgs.pg.t_now_mins == (t_to_mins(stgs.GE.end_time) + 1375) % 1440:
+            if events.update_pv_fcast is True:
                 try:
                     pv_forecast.update()
                 except Exception:
                     logger.warning("Warning; Solcast download failure")
 
-            # 2 minutes before off-peak start for setting overnight battery charging target
-            # Repeat 60 mins before end of off-peak in case of Solcast fine-tuning
-            if ((stgs.pg.test_mode or stgs.pg.once_mode) and stgs.pg.loop_counter == 2) or \
-                stgs.pg.t_now_mins == (t_to_mins(stgs.GE.start_time) + 1438) % 1440 or \
-                stgs.pg.t_now_mins == (t_to_mins(stgs.GE.end_time) + 1380) % 1440:
+            if events.update_soc is True:
                 # compute & set SoC target
                 try:
                     inverter.get_load_hist()
                     logger.info("Forecast weighting: "+ str(stgs.Solcast.weight))
                     inverter.set_mode(inverter.compute_tgt_soc(pv_forecast, stgs.Solcast.weight, True))
-                except Exception as error:
-                    logger.error(str(type(error).__name__))
-                    logger.error(str(error))
+                except Exception as e:
+                    logger.error(str(type(e).__name__))
+                    logger.error(str(e))
                     logger.error("Warning; unable to set SoC")
 
                 # Send plot data to logfile in CSV format
-                logger.info("SoC Chart Data - Start. Paste these lines into a spreadsheet to create a plot of SoC")
+                logger.info("SoC Chart Data - Start. Paste these lines into a spreadsheet for a plot of SoC")
                 i = 0
                 while i < 5:
                     logger.info(inverter.plot[i])
@@ -659,69 +742,62 @@ if __name__ == '__main__':
 
                 # Pause/resume battery once charged to compensate for AC3 inverter oscillation bug
                 # Covers charge period both in early-morning and spanning midnight
-                if MANUAL_HOLD_VAR is False and OFF_PEAK_VAR is True:
-                    if -2 < (inverter.soc - inverter.tgt_soc) < 2:  # Within 2% avoids sampling issues
+                if inverter.tgt_soc < 100 and events.off_pk is True and MANUAL_HOLD_VAR is False:
+                    if -2 < (inverter.soc - inverter.tgt_soc) < 2:  # Avoids sampling issues
                         inverter.set_mode("pause")
                         MANUAL_HOLD_VAR = True
-                if stgs.pg.month in stgs.GE.winter and stgs.pg.t_now_mins == t_to_mins(stgs.GE.end_time_winter) or \
-                    stgs.pg.month not in stgs.GE.winter and (stgs.pg.t_now_mins == t_to_mins(stgs.GE.end_time) or \
-                    stgs.pg.t_now_mins + 60 == t_to_mins(stgs.GE.end_time)):
+                if events.off_pk_end is True or \
+                    events.winter is False and events.off_pk_ending is True:
                     inverter.set_mode("resume")
                     MANUAL_HOLD_VAR = False
 
                 # Poll car charger during additional Intelligent Octopus slots
                 # If car is charging, either pause or charge inverter, depending on battery state
-                if OFF_PEAK_VAR is False:
-                    EV_ACTIVE_VAR = ev_active()
-                    if EV_ACTIVE_VAR is True and EV_CHARGING_VAR is False:
-                        EV_CHARGING_VAR = True
-                        if stgs.pg.month in stgs.GE.winter:  # Fill battery in parallel with EV charging
-                            logger.info("EV charging active: enabling battery boost at "+ stgs.pg.long_t_now)
+                EV_ACTIVE_VAR = ev.charging()
+                if events.off_pk is False:
+                    if ev.confirmed_active is False and EV_ACTIVE_VAR is True:
+                        ev.confirmed_active = True
+                        if events.winter is True or events.shoulder is True:  # Fill battery
+
+                            logger.info("EV charging: enabling battery boost at "+ \
+                                stgs.pg.long_t_now)
                             inverter.set_mode("charge_now")
-                            if env_obj.temp_deg_c < 15:
+
+                            if env_obj.temp_deg_c < 15:  # Force heating on
                                 set_shelly_switch(True)
-                        elif stgs.pg.month in stgs.GE.shoulder:  # Top up battery if needed
-                            logger.info("EV charging active: pausing battery discharge at "+ stgs.pg.long_t_now)
-                            if inverter.soc < stgs.GE.max_soc_target:
-                                inverter.tgt_soc = stgs.GE.max_soc_target
-                                inverter.set_mode("charge_now_soc")
-                            else:
-                                inverter.set_mode("pause_discharge")
+
                         else:  # Put battery on hold during EV charging
-                            logger.info("EV charging active: pausing battery discharge at "+ stgs.pg.long_t_now)
+                            logger.info("EV charging: pausing battery discharge at "+ \
+                                stgs.pg.long_t_now)
                             inverter.set_mode("pause_discharge")
+
                     else:  # Check at the end of every 30-minute metering period
-                        if stgs.pg.t_now_mins % 30 == 0 and EV_ACTIVE_VAR is False and EV_CHARGING_VAR is True:
-                            logger.info("EV charging inactive, resuming ECO battery mode at "+ stgs.pg.long_t_now)
-                            EV_CHARGING_VAR = False
+                        if stgs.pg.t_now_mins % 30 == 0 and EV_ACTIVE_VAR is False and ev.confirmed_active is True:
+                            logger.info("EV charging inactive, resuming ECO battery mode at "+ \
+                                stgs.pg.long_t_now)
+                            ev.confirmed_active = False
                             inverter.set_mode("resume")
-                            if read_shelly_switch() == "On-http":  # Turn off heating if thermostat not active
+                            if read_shelly_switch() == "Off":  # Turn off heating as thermostat not active
                                 set_shelly_switch(False)
 
                 # Afternoon battery boost in shoulder/winter months to load shift from peak period,
                 # useful for Cosy Octopus, etc
-                if stgs.GE.boost_start != "":  # Only execute if parameter has been set
-                    if stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_start) and stgs.pg.month in stgs.GE.winter:
-                        logger.info("Enabling afternoon battery boost (winter)")
-                        inverter.set_mode("charge_now")
-                    elif stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_start) and stgs.pg.month in stgs.GE.shoulder:
-                        logger.info("Enabling afternoon battery boost (shoulder)")
-                        inverter.tgt_soc = int(stgs.GE.max_soc_target)
-                        inverter.set_mode("charge_now_soc")
-                    if stgs.pg.t_now_mins == t_to_mins(stgs.GE.boost_finish):
-                        if stgs.pg.month in stgs.GE.winter:
-                            inverter.set_mode("set_soc_winter")  # Set inverter for next timed charge period
-                        else:
-                            inverter.set_mode("set_soc")  # Set inverter for next timed charge period
+                if events.pm_boost_start is True:
+                    logger.info("Enabling afternoon battery boost")
+                    inverter.tgt_soc = int(stgs.GE.max_soc_target)
+                    inverter.set_mode("charge_now_soc")
+
+                if events.pm_boost_end is True:
+                    inverter.set_mode("set_soc")  # Set inverter for next timed charge period
 
                 # Update carbon intensity every 15 mins as background task
-                if stgs.CarbonIntensity.enable is True and stgs.pg.loop_counter % 15 == 14:
+                if events.update_carbon_intensity is True:
                     do_get_carbon_intensity = threading.Thread(target=env_obj.update_co2())
                     do_get_carbon_intensity.daemon = True
                     do_get_carbon_intensity.start()
 
                 # Update weather every 15 mins as background task
-                if stgs.OpenWeatherMap.enable is True and stgs.pg.loop_counter % 15 == 14:
+                if events.update_weather is True:
                     do_get_weather = threading.Thread(target=env_obj.update_weather_curr())
                     do_get_weather.daemon = True
                     do_get_weather.start()
@@ -736,12 +812,8 @@ if __name__ == '__main__':
                     do_balance_loads.daemon = True
                     do_balance_loads.start()
 
-                # Publish data to PVOutput.org every 5 minutes (or 5 cycles as a catch-all)
-                if stgs.PVOutput.enable is True and \
-                    (stgs.pg.test_mode or \
-                    stgs.pg.t_now_mins % 5 == 3 or \
-                    stgs.pg.loop_counter > stgs.pg.pvo_tstamp + 4):
-
+                # Publish data to PVOutput.org
+                if events.post_pvoutput is True:
                     stgs.pg.pvo_tstamp = stgs.pg.loop_counter
                     do_put_pv_output = threading.Thread(target=put_pv_output)
                     do_put_pv_output.daemon = True

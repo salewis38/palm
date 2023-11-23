@@ -374,8 +374,8 @@ class GivEnergyObj:
     def compute_tgt_soc(self, gen_fcast, weight: int, commit: bool) -> str:
         """Compute overnight SoC target"""
 
-        # Winter months = 100%
-        if stgs.pg.month in stgs.GE.winter and commit:  # No need for sums...
+        # Winter months = 100%, no need for sums
+        if stgs.pg.test_mode is False and stgs.pg.month in stgs.GE.winter and commit:
             logger.info("winter month, SoC set to 100")
             self.tgt_soc = 100
             return "set_soc_winter"
