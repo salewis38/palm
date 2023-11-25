@@ -1,7 +1,8 @@
-# version 2023.09.29
+# version 2023.11.25
 """
 Settings file for use with palm.py: Compatible with v0.9, v0.10, v1.0.x and v1.1.x
 2023.09.29: added Shelly power monitor
+2023.11.25: added Shelly switch to activate other loads when Smart Charging
 """
 ######
 # Do not edit this class definition, it is used to share global variables between components of the PALM system
@@ -129,7 +130,7 @@ class GE:
 
 class Shelly:
     em0_url = "http://192.168.1.21/emeter/0"
-
+    sw1_url = "http://192.168.1.22/"
 
 # MiHome devices are used to activate various loads
 class MiHome:
