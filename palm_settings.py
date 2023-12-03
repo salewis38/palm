@@ -1,8 +1,9 @@
-# version 2023.11.25
+# version 2023.12.03
 """
 Settings file for use with palm.py: Compatible with v0.9, v0.10, v1.0.x and v1.1.x
-2023.09.29: added Shelly power monitor
-2023.11.25: added Shelly switch to activate other loads when Smart Charging
+2023.09.29: Added Shelly power monitor
+2023.11.25: Added Shelly switch to activate other loads when Smart Charging
+2023.12.03  Updated Loads for Shelly switches and MinBattSoc
 """
 ######
 # Do not edit this class definition, it is used to share global variables between components of the PALM system
@@ -34,7 +35,7 @@ class Solcast:
 class PVData:
     PwrThreshold = 30  # Sets power threshold for virtual sunset (lighting up time)
 
- # PVOutput.org data logging/analysis service
+# PVOutput.org data logging/analysis service
 class PVOutput:
     enable = True
     url= "https://pvoutput.org/service/r2/"
@@ -122,36 +123,39 @@ class GE:
     end_time = "04:30"
 
     # Delayed winter end time saves battery for morning peak. If "", disables writing this inverter register
-    end_time_winter = "06:30"    
+    end_time_winter = "06:30"
 
     # Winter afternoon boost start and end times
     boost_start = "13:03"
     boost_finish = "16:44"
 
+# Enable or disable all load management here
+class LoadMgt:
+    enable = True
+
 class Shelly:
-    em0_url = "http://192.168.1.21/emeter/0"
-    sw1_url = "http://192.168.1.22/"
+    """Shelly switch definitions"""
+    em0_url = "http://192.168.1.21/emeter/0"  # Energy meter for EV, detects IO Smart Charging sessions
+    sw1_url = "http://192.168.1.22/"  # Switch for enabling loads during IO Smart Charging
+    sw2_url = "http://192.168.1.23/"  # Switch for enabling loads during PV export - see Load1 below
 
 # MiHome devices are used to activate various loads
 class MiHome:
-    enable = True
     url = "https://mihome4u.co.uk/api/v1/subdevices/"
     UserID = "XXXX"
     key = "XXXX"
 
 # This section defines the various loads and operating parameters
+# Examples are provided for a Shelly switch and a MiHome switch
 LOAD_CONFIG = {
     "LoadPriorityOrder": [
-        "Lights1",
-        "Lights2",
-        "Lights3",
-        "Lights4",
         "Load1",
         "Load2"
     ],
     "Load1": {
         "DeviceName"    :       "Towel Rails",
-        "DeviceID"      :       "182182",
+        "DeviceType"    :       "Shelly",
+        "DeviceID"      :       Shelly.sw2_url,
         "EarlyStart"    :       "10:00",
         "LateStart"     :       "14:00",
         "FinishTime"    :       "16:00",
@@ -159,13 +163,15 @@ LOAD_CONFIG = {
         "MinDailyTarget":        0,
         "MaxDailyTarget":        60,
         "MaxCO2"        :        200,
-        "MaxTemp"       :        20,
+        "MinBattSoc"    :        90,
+        "MaxTemp"       :        25,
         "PwrLoad"       :        800,
         "PwrStart"      :        500,
         "Hysteresis"    :        250
     },
     "Load2": {
         "DeviceName"    :       "Battery Charger",
+        "DeviceType"    :       "MiHome",
         "DeviceID"      :       "249595",
         "EarlyStart"    :       "09:00",
         "LateStart"     :       "15:00",
@@ -174,80 +180,11 @@ LOAD_CONFIG = {
         "MinDailyTarget":        15,
         "MaxDailyTarget":        120,
         "MaxCO2"        :        300,
+        "MinBattSoc"    :        90,
         "MaxTemp"       :        25,
         "PwrLoad"       :        40,
         "PwrStart"      :        30,
         "Hysteresis"    :        50
-    },
-    "Lights1": {
-        "DeviceName"    :       "Lights - Hall",
-        "DeviceID"      :       "176890",
-        "EarlyStart"    :       "VSunset",
-        "LateStart"     :       "VSunset",
-        "FinishTime"    :       "22:00",
-        "MinOnTime"     :        10,
-        "MinDailyTarget":        480,
-        "MaxDailyTarget":        480,
-        "MaxCO2"        :        500,
-        "MaxTemp"       :        50,
-        "PwrLoad"       :        10,
-        "PwrStart"      :        0,
-        "Hysteresis"    :        0
-    },
-    "Lights2": {
-        "DeviceName"    :       "Lights - Standard Lamp",
-        "DeviceID"      :       "176922",
-        "EarlyStart"    :       "VSunset",
-        "LateStart"     :       "VSunset",
-        "FinishTime"    :       "22:45",
-        "MinOnTime"     :        10,
-        "MinDailyTarget":        480,
-        "MaxDailyTarget":        480,
-        "MaxCO2"        :        500,
-        "MaxTemp"       :        50,
-        "PwrLoad"       :        60,
-        "PwrStart"      :        0,
-        "Hysteresis"    :        0
-    },
-    "Lights3": {
-        "DeviceName"    :        "Lights - Lounge Table Lamp",
-        "DeviceID"      :        "221403",
-        "EarlyStart"    :        "VSunset",
-        "LateStart"     :        "VSunset",
-        "FinishTime"    :        "23:59",
-        "MinOnTime"     :        10,
-        "MinDailyTarget":        480,
-        "MaxDailyTarget":        480,
-        "MaxCO2"        :        500,
-        "MaxTemp"       :        50,
-        "PwrLoad"       :        10,
-        "PwrStart"      :        0,
-        "Hysteresis"    :        0
-    },
-    "Lights4": {
-        "DeviceName"    :        "Christmas Lights",
-        "DeviceID"      :        "234342",
-        "EarlyStart"    :        "VSunset",
-        "LateStart"     :        "VSunset",
-        "FinishTime"    :        "22:35",
-        "MinOnTime"     :        10,
-        "MinDailyTarget":        480,
-        "MaxDailyTarget":        480,
-        "MaxCO2"        :        500,
-        "MaxTemp"       :        50,
-        "PwrLoad"       :        10,
-        "PwrStart"      :        0,
-        "Hysteresis"    :        0
-    },
-    "LEAF": {
-        "DeviceName"    :       "LEAF",
-        "DeviceID"      :       "177842",
-        "EarlyStart"    :       "Sunrise",
-        "LateStart"     :       "23:59",
-        "MinCO2"        :        90,
-        "GenRatio"      :        10,
-        "PwrLoad"       :        7000,
-        "PwrStart"      :        1000
     }
 }
 
