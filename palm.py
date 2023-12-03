@@ -801,6 +801,13 @@ if __name__ == '__main__':
                     do_balance_loads.daemon = True
                     do_balance_loads.start()
 
+                # Publish data to PVOutput.org
+                if events.post_pvoutput is True:
+                    stgs.pg.pvo_tstamp = stgs.pg.loop_counter
+                    do_put_pv_output = threading.Thread(target=put_pv_output)
+                    do_put_pv_output.daemon = True
+                    do_put_pv_output.start()
+        
         stgs.pg.loop_counter += 1
 
         if stgs.pg.t_now_mins == 0:  # Reset frame counter every 24 hours
