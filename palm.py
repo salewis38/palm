@@ -761,7 +761,7 @@ if __name__ == '__main__':
                             inverter.set_mode("pause_discharge")
 
                     else:  # Check at the end of every 30-minute metering period
-                        if stgs.pg.t_now_mins % 30 == 0 and EV_ACTIVE_VAR is False and ev.confirmed_active is True:
+                        if stgs.pg.t_now_mins % 30 < 3 and EV_ACTIVE_VAR is False and ev.confirmed_active is True:
                             logger.info("EV charging inactive, resuming ECO battery mode at "+ \
                                 stgs.pg.long_t_now)
                             ev.confirmed_active = False
