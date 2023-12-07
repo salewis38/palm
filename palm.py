@@ -536,6 +536,7 @@ class EventsObj:
         self.shoulder: bool = False
         self.winter: bool = False
         self.off_pk: bool = False
+        self.off_pk_start: bool = False
         self.off_pk_ending: bool = False
         self.off_pk_end: bool = False
         self.pm_boost_start: bool = False
@@ -556,6 +557,7 @@ class EventsObj:
 
         if stgs.GE.start_time != "" and stgs.GE.end_time != "":
             # Is current time is within off-peak window? Needs to consider spanning midnight
+            self.off_pk_start = t_to_mins(stgs.GE.start_time) == t_now
             self.off_pk = t_to_mins(stgs.GE.start_time) < t_now < t_to_mins(stgs.GE.end_time) or \
                 t_now > t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) or \
                 t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) > t_now
@@ -747,27 +749,24 @@ if __name__ == '__main__':
                     if ev.confirmed_active is False and EV_ACTIVE_VAR is True:
                         ev.confirmed_active = True
                         if events.winter is True or events.shoulder is True:  # Fill battery
-
                             logger.info("EV charging: enabling battery boost at "+ \
                                 stgs.pg.long_t_now)
                             inverter.set_mode("charge_now")
-
                             if env_obj.temp_deg_c < 15:  # Force heating on
                                 set_shelly_switch(stgs.Shelly.sw1_url, True)
-
                         else:  # Put battery on hold during EV charging
                             logger.info("EV charging: pausing battery discharge at "+ \
                                 stgs.pg.long_t_now)
                             inverter.set_mode("pause_discharge")
-
-                    else:  # Check at the end of every 30-minute metering period
-                        if stgs.pg.t_now_mins % 30 < 3 and EV_ACTIVE_VAR is False and ev.confirmed_active is True:
+                    elif EV_ACTIVE_VAR is False and ev.confirmed_active is True:
+                        if stgs.pg.t_now_mins % 30 < 3:  # Check at the end of every 30-minute metering period
                             logger.info("EV charging inactive, resuming ECO battery mode at "+ \
                                 stgs.pg.long_t_now)
                             ev.confirmed_active = False
                             inverter.set_mode("resume")
-                            if read_shelly_switch(stgs.Shelly.sw1_url) == "Off":  # Turn off heating as thermostat not active
-                                set_shelly_switch(stgs.Shelly.sw1_url, False)
+                        if (events.off_pk_start or stgs.pg.t_now_mins % 30 < 3) and \
+                            read_shelly_switch(stgs.Shelly.sw1_url) == "Off":  # Turn off heating as thermostat not active
+                            set_shelly_switch(stgs.Shelly.sw1_url, False)
 
                 # Afternoon battery boost in shoulder/winter months to load shift from peak period,
                 # useful for Cosy Octopus, etc
