@@ -802,6 +802,9 @@ if __name__ == '__main__':
 
                 # Publish data to PVOutput.org
                 if events.post_pvoutput is True:
+                    if stgs.pg.t_now_mins < 6:
+                        inverter.pv_energy = 0  # Reset totals to prevent carry-over issue with PVOutput
+                        inverter.grid_energy = 0
                     stgs.pg.pvo_tstamp = stgs.pg.loop_counter
                     do_put_pv_output = threading.Thread(target=put_pv_output)
                     do_put_pv_output.daemon = True
@@ -810,8 +813,6 @@ if __name__ == '__main__':
         stgs.pg.loop_counter += 1
 
         if stgs.pg.t_now_mins == 0:  # Reset frame counter every 24 hours
-            inverter.pv_energy = 0  # Reset daily to prevent carry-over issue with PVOutput
-            inverter.grid_energy = 0
             stgs.pg.loop_counter = 1
 
         if stgs.pg.test_mode or stgs.pg.once_mode:  # Wait 5 seconds
