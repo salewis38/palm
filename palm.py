@@ -3,6 +3,7 @@
 
 import sys
 import time
+import csv
 import threading
 import json
 from typing import List
@@ -51,8 +52,9 @@ import palm_settings as stgs
 # v1.1.0    06/Aug/23 Split out generic functions as palm_utils.py
 # v1.1.1    19/Nov/23 Updated to Shelly Gen 2 switch, improved readability
 # v1.1.2    03/Dec/23 Added Shelly switch to load balancing, updated Events logic for robustness
+# v1.1.3    01/Jan/24 Added routine to update PVOutput daily stats with IO Smart Charge periods
 
-PALM_VERSION = "v1.1.2"
+PALM_VERSION = "v1.1.3"
 # -*- coding: utf-8 -*-
 # pylint: disable=logging-not-lazy
 # pylint: disable=consider-using-f-string
@@ -487,6 +489,148 @@ def put_pv_output():
 #  End of put_pv_output()
 
 
+def resummarise_pv_output(post_date: str):
+    """Calculate and upload summary of generation/consumption data to PVOutput.org."""
+
+    # Step 1. Download existing daily summary data
+    url = stgs.PVOutput.url + "getstatistic.jsp"
+    key = stgs.PVOutput.key
+    sid = stgs.PVOutput.sid
+
+    payload = {
+        "c"   : 1,
+        "key" : key,
+        "sid" : sid,
+        "df"  : post_date,
+        "dt"  : post_date
+    }
+
+    payload = urlencode(payload, doseq=True, quote_via=lambda x,y,z,w: x)
+
+    try:
+        resp = requests.get(url, params=payload, timeout=10)
+        resp.raise_for_status()
+    except requests.exceptions.RequestException as error:
+        logger.warning("PVOutput Read Error "+ stgs.pg.long_t_now)
+        logger.warning(error)
+        return
+
+    stats = list(resp.content.decode('utf-8').split(','))
+    e_gen = int(stats[0])
+    e_pk = int(stats[12])
+    e_off_pk = int(stats[13])
+    e_shldr = int(stats[14])
+
+    logger.warning("Stats:"+ str(e_gen)+ str(e_pk)+ str(e_off_pk)+ str(e_shldr))
+
+    if e_shldr > 0:
+        logger.warning("Shoulder values already computed for "+ str(post_date)+ ". Exiting")
+        return
+
+    # Step 2. Download 5-minute usage data for analysis
+    url = stgs.PVOutput.url + "getstatus.jsp"
+    key = stgs.PVOutput.key
+    sid = stgs.PVOutput.sid
+
+    payload = {
+        "h"   : 1,
+        "limit": 288,
+        "ext" : 1,
+        "key" : key,
+        "sid" : sid,
+        "d"   : post_date
+    }
+
+    payload = urlencode(payload, doseq=True, quote_via=lambda x,y,z,w: x)
+
+    try:
+        resp = requests.get(url, params=payload, timeout=10)
+        resp.raise_for_status()
+    except requests.exceptions.RequestException as error:
+        logger.warning("PVOutput Read Error "+ stgs.pg.long_t_now)
+        logger.warning(error)
+        return
+
+    pv_data = resp.content.decode('utf-8')
+
+    headings = "Date,Time,EGen,EEff,PInst,PAvg,NormOp,ECons,PCons,Temp,Volts,v7 - PEV,v8 - PBattOut,v9 - CO2 Intens,v10 CO2 Usage,v11 - PBattIn,v12 - SoC;"
+
+    measured_data = headings + pv_data
+
+    d_time:str = [0] * 300
+    d_pwr_ev:int = [0] * 300
+    d_pwr_import:int = [0] * 300
+
+    csv_data = csv.DictReader(measured_data.split(';'))
+
+    # Step 3. Extract fields from received data. Data is received in reverse order
+    i = 0
+    for row in csv_data:
+        d_time[i] = str(row['Time'])
+        d_pwr_ev[i] = int(float(row['v7 - PEV']))
+        d_pwr_import[i] = int(row['ECons']) - int(row['EGen'])
+        i += 1
+
+    # Step 4. Work back through data to identify peak periods where EV is active,
+    # and sum energy imported in periods
+    e_shldr = 0
+    while i > 4:
+        t_row_mins = t_to_mins(d_time[i])
+        if t_row_mins % 30 == 0:
+            if 330 < t_row_mins < 1410 and sum(d_pwr_ev[i:i+5]) > 1000:  # Peak hours, EV active
+                e_shldr += d_pwr_import[i-5] - d_pwr_import[i]
+        i -= 1
+
+    if e_shldr == 0:
+        logger.warning("No shoulder generation identified")
+        return
+
+    e_pk_new = e_pk - e_shldr
+
+    logger.warning("Daily adjustments for "+ str(post_date)+ ":")
+    logger.warning("Off Peak:"+ str(e_off_pk))
+    logger.warning("Peak: "+ str(e_pk)+ " now: "+ str(e_pk_new))
+    logger.warning("Shoulder: "+ str(e_shldr))
+
+    # Step 5. Upload revised values to PVOutput.org
+    url = stgs.PVOutput.url + "addoutput.jsp"
+    key = stgs.PVOutput.key
+    sid = stgs.PVOutput.sid
+
+    payload = {
+        "sid" : sid,
+        "key" : key
+    }
+
+    part_payload = {
+        "d"   : post_date,
+        "g"   : e_gen,
+        "ip"  : e_pk_new,
+        "io"  : e_off_pk,
+        "is"  : e_shldr
+    }
+
+    payload.update(part_payload)  # Concatenate the data, don't escape ":"
+    payload = urlencode(payload, doseq=True, quote_via=lambda x,y,z,w: x)
+
+    time.sleep(2)  # PVOutput has a 1 second rate limit. Avoid any clashes
+
+    if not stgs.pg.test_mode:
+        try:
+            resp = requests.get(url, params=payload, timeout=10)
+            resp.raise_for_status()
+        except requests.exceptions.RequestException as error:
+            logger.warning("PVOutput Write Error "+ stgs.pg.long_t_now)
+            logger.warning(error)
+            logger.warning(resp.content)
+            return
+
+    logger.info("Data; Write to pvoutput.org; "+ str(part_payload))
+    return
+
+# End of resummarise_pv_output
+
+
 def balance_loads():
     """control loads, based on schedule, generation, temp, etc."""
 
@@ -536,6 +680,7 @@ class EventsObj:
         self.shoulder: bool = False
         self.winter: bool = False
         self.off_pk: bool = False
+        self.off_pk_start: bool = False
         self.off_pk_ending: bool = False
         self.off_pk_end: bool = False
         self.pm_boost_start: bool = False
@@ -543,6 +688,7 @@ class EventsObj:
         self.update_pv_fcast: bool = False
         self.update_soc: bool = False
         self.post_pvoutput: bool = False
+        self.resumm_pvoutput: bool = False
         self.update_carbon_intensity: bool = False
         self.update_weather: bool = False
 
@@ -556,6 +702,7 @@ class EventsObj:
 
         if stgs.GE.start_time != "" and stgs.GE.end_time != "":
             # Is current time is within off-peak window? Needs to consider spanning midnight
+            self.off_pk_start = t_to_mins(stgs.GE.start_time) == t_now
             self.off_pk = t_to_mins(stgs.GE.start_time) < t_now < t_to_mins(stgs.GE.end_time) or \
                 t_now > t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) or \
                 t_to_mins(stgs.GE.start_time) > t_to_mins(stgs.GE.end_time) > t_now
@@ -593,8 +740,13 @@ class EventsObj:
 
         # Publish data to PVOutput.org every 5 minutes (or 5 cycles as a catch-all)
         self.post_pvoutput = stgs.PVOutput.enable is True and \
-                    (stgs.pg.test_mode or t_now % 5 == 3 or \
+                    (stgs.pg.test_mode or t_now % 5 == 2 or \
                     stgs.pg.loop_counter > stgs.pg.pvo_tstamp + 4)
+
+        # Summarise daily data at PVOutput.org
+        self.resumm_pvoutput = stgs.PVOutput.enable is True and \
+                    (stgs.pg.test_mode and stgs.pg.loop_counter == 4 or \
+                    stgs.pg.t_now_mins == 1438)
 
         # Update carbon intensity and weather every 15 mins
         self.update_carbon_intensity = \
@@ -747,27 +899,24 @@ if __name__ == '__main__':
                     if ev.confirmed_active is False and EV_ACTIVE_VAR is True:
                         ev.confirmed_active = True
                         if events.winter is True or events.shoulder is True:  # Fill battery
-
                             logger.info("EV charging: enabling battery boost at "+ \
                                 stgs.pg.long_t_now)
                             inverter.set_mode("charge_now")
-
                             if env_obj.temp_deg_c < 15:  # Force heating on
                                 set_shelly_switch(stgs.Shelly.sw1_url, True)
-
                         else:  # Put battery on hold during EV charging
                             logger.info("EV charging: pausing battery discharge at "+ \
                                 stgs.pg.long_t_now)
                             inverter.set_mode("pause_discharge")
-
-                    else:  # Check at the end of every 30-minute metering period
-                        if stgs.pg.t_now_mins % 30 < 3 and EV_ACTIVE_VAR is False and ev.confirmed_active is True:
+                    elif EV_ACTIVE_VAR is False and ev.confirmed_active is True:
+                        if stgs.pg.t_now_mins % 30 < 3:  # Check at the end of every 30-minute metering period
                             logger.info("EV charging inactive, resuming ECO battery mode at "+ \
                                 stgs.pg.long_t_now)
                             ev.confirmed_active = False
                             inverter.set_mode("resume")
-                            if read_shelly_switch(stgs.Shelly.sw1_url) == "Off":  # Turn off heating as thermostat not active
-                                set_shelly_switch(stgs.Shelly.sw1_url, False)
+                        if (events.off_pk_start or stgs.pg.t_now_mins % 30 < 3) and \
+                            read_shelly_switch(stgs.Shelly.sw1_url) == "Off":  # Turn off heating as thermostat not active
+                            set_shelly_switch(stgs.Shelly.sw1_url, False)
 
                 # Afternoon battery boost in shoulder/winter months to load shift from peak period,
                 # useful for Cosy Octopus, etc
@@ -803,16 +952,24 @@ if __name__ == '__main__':
 
                 # Publish data to PVOutput.org
                 if events.post_pvoutput is True:
+                    if stgs.pg.t_now_mins < 6:
+                        inverter.pv_energy = 0  # Reset totals to prevent carry-over issue with PVOutput
+                        inverter.grid_energy = 0
                     stgs.pg.pvo_tstamp = stgs.pg.loop_counter
                     do_put_pv_output = threading.Thread(target=put_pv_output)
                     do_put_pv_output.daemon = True
                     do_put_pv_output.start()
-        
+
+                # Update PVOutput daily summary to reflect any IO Smart charging
+                if events.resumm_pvoutput:
+                    do_resumm_pv_output = threading.Thread(target=\
+                        resummarise_pv_output(time.strftime("%Y%m%d", time.localtime())))
+                    do_resumm_pv_output.daemon = True
+                    do_resumm_pv_output.start()
+
         stgs.pg.loop_counter += 1
 
         if stgs.pg.t_now_mins == 0:  # Reset frame counter every 24 hours
-            inverter.pv_energy = 0  # Reset daily to prevent carry-over issue with PVOutput
-            inverter.grid_energy = 0
             stgs.pg.loop_counter = 1
 
         if stgs.pg.test_mode or stgs.pg.once_mode:  # Wait 5 seconds
