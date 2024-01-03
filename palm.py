@@ -52,7 +52,7 @@ import palm_settings as stgs
 # v1.1.0    06/Aug/23 Split out generic functions as palm_utils.py
 # v1.1.1    19/Nov/23 Updated to Shelly Gen 2 switch, improved readability
 # v1.1.2    03/Dec/23 Added Shelly switch to load balancing, updated Events logic for robustness
-# v1.1.3    01/Jan/24 Added routine to update PVOuput daily stats with IO Smart Charge periods
+# v1.1.3    01/Jan/24 Added routine to update PVOutput daily stats with IO Smart Charge periods
 
 PALM_VERSION = "v1.1.3"
 # -*- coding: utf-8 -*-
@@ -521,10 +521,10 @@ def resummarise_pv_output(post_date: str):
     e_off_pk = int(stats[13])
     e_shldr = int(stats[14])
 
-    print("Stats:", e_gen, e_pk, e_off_pk, e_shldr)
+    logger.warning("Stats:"+ str(e_gen)+ str(e_pk)+ str(e_off_pk)+ str(e_shldr))
 
     if e_shldr > 0:
-        print("Shoulder values already computed for ", post_date, ". Exiting")
+        logger.warning("Shoulder values already computed for "+ str(post_date)+ ". Exiting")
         return
 
     # Step 2. Download 5-minute usage data for analysis
@@ -577,14 +577,12 @@ def resummarise_pv_output(post_date: str):
     while i > 4:
         t_row_mins = t_to_mins(d_time[i])
         if t_row_mins % 30 == 0:
-            # print("Boundary:", row, d_time[i], d_pwr_import[i], d_pwr_ev[i])
             if 330 < t_row_mins < 1410 and sum(d_pwr_ev[i:i+5]) > 1000:  # Peak hours, EV active
                 e_shldr += d_pwr_import[i-5] - d_pwr_import[i]
-                # print("Charging detected. e_shldr = ", e_shldr)
         i -= 1
 
     if e_shldr == 0:
-        print("No shoulder generation identified")
+        logger.warning("No shoulder generation identified")
         return
 
     e_pk_new = e_pk - e_shldr
@@ -624,7 +622,7 @@ def resummarise_pv_output(post_date: str):
         except requests.exceptions.RequestException as error:
             logger.warning("PVOutput Write Error "+ stgs.pg.long_t_now)
             logger.warning(error)
-            print(resp.content)
+            logger.warning(resp.content)
             return
 
     logger.info("Data; Write to pvoutput.org; "+ str(part_payload))
@@ -690,6 +688,7 @@ class EventsObj:
         self.update_pv_fcast: bool = False
         self.update_soc: bool = False
         self.post_pvoutput: bool = False
+        self.resumm_pvoutput: bool = False
         self.update_carbon_intensity: bool = False
         self.update_weather: bool = False
 
@@ -743,6 +742,11 @@ class EventsObj:
         self.post_pvoutput = stgs.PVOutput.enable is True and \
                     (stgs.pg.test_mode or t_now % 5 == 2 or \
                     stgs.pg.loop_counter > stgs.pg.pvo_tstamp + 4)
+
+        # Summarise daily data at PVOutput.org
+        self.resumm_pvoutput = stgs.PVOutput.enable is True and \
+                    (stgs.pg.test_mode and stgs.pg.loop_counter == 4 or \
+                    stgs.pg.t_now_mins == 1438)
 
         # Update carbon intensity and weather every 15 mins
         self.update_carbon_intensity = \
@@ -957,7 +961,7 @@ if __name__ == '__main__':
                     do_put_pv_output.start()
 
                 # Update PVOutput daily summary to reflect any IO Smart charging
-                if stgs.pg.t_now_mins == 1438:
+                if events.resumm_pvoutput:
                     do_resumm_pv_output = threading.Thread(target=\
                         resummarise_pv_output(time.strftime("%Y%m%d", time.localtime())))
                     do_resumm_pv_output.daemon = True
