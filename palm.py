@@ -10,7 +10,7 @@ from typing import List
 from urllib.parse import urlencode
 import logging
 import requests
-from palm_utils import GivEnergyObj, SolcastObj, t_to_mins
+from palm_utils import GivEnergyObj, SolcastObj, t_to_mins, t_to_hrs
 import palm_settings as stgs
 
 # This software in any form is covered by the following Open Source BSD license:
@@ -53,8 +53,9 @@ import palm_settings as stgs
 # v1.1.1    19/Nov/23 Updated to Shelly Gen 2 switch, improved readability
 # v1.1.2    03/Dec/23 Added Shelly switch to load balancing, updated Events logic for robustness
 # v1.1.3    01/Jan/24 Added routine to update PVOutput daily stats with IO Smart Charge periods
+# v1.1.3a   28/Jan/24 Revise PVOutput write timing to improve alignment of inverter and local data
 
-PALM_VERSION = "v1.1.3"
+PALM_VERSION = "v1.1.3a"
 # -*- coding: utf-8 -*-
 # pylint: disable=logging-not-lazy
 # pylint: disable=consider-using-f-string
@@ -397,6 +398,7 @@ class EVObj:
 
     def __init__(self):
         self.power: int = 0
+        self.power_last: int = 0
         self.active_now: bool = False
         self.active_last: bool = False
         self.active: bool = False
@@ -420,6 +422,7 @@ class EVObj:
         logger.debug(str(parsed))
 
         if parsed['is_valid'] is True:
+            self.power_last = self.power
             self.power = int(parsed['power'])
             self.active_last = self.active_now
             self.active_now = self.power > 500
@@ -439,13 +442,17 @@ def put_pv_output():
     key = stgs.PVOutput.key
     sid = stgs.PVOutput.sid
 
-    post_date = time.strftime("%Y%m%d", time.localtime())
-    post_time = time.strftime("%H:%M", time.localtime())
+    # Backdate measurements by 60 seconds
+    post_date = time.strftime("%Y%m%d", time.localtime(time.time() - 60))
+    post_time = time.strftime("%H:%M", time.localtime(time.time() - 60))
 
     batt_power_out = inverter.batt_power if inverter.batt_power > 0 else 0
     batt_power_in = -1 * inverter.batt_power if inverter.batt_power < 0 else 0
     total_cons = inverter.consumption - inverter.batt_power
     load_pwr = total_cons if total_cons > 0 else 0
+
+    if stgs.pg.test_mode is True:
+        print("### TEST Inverter read time: ", inverter.read_time_mins)
 
     payload = {
         "t"   : post_time,
@@ -461,7 +468,7 @@ def put_pv_output():
         "v4"  : load_pwr,
         "v5"  : env_obj.temp_deg_c,
         "v6"  : inverter.line_voltage,
-        "v7"  : ev.power,
+        "v7"  : ev.power_last,
         "v8"  : batt_power_out,
         "v9"  : env_obj.co2_intensity,
         "v10" : CO2_USAGE_VAR,
@@ -687,7 +694,6 @@ class EventsObj:
         self.pm_boost_end: bool = False
         self.update_pv_fcast: bool = False
         self.update_soc: bool = False
-        self.post_pvoutput: bool = False
         self.resumm_pvoutput: bool = False
         self.update_carbon_intensity: bool = False
         self.update_weather: bool = False
@@ -736,12 +742,6 @@ class EventsObj:
                 t_now == t_to_mins(stgs.GE.boost_start)
             self.pm_boost_end = self.winter is True or self.shoulder is True and \
                 t_now == t_to_mins(stgs.GE.boost_finish)
-
-
-        # Publish data to PVOutput.org every 5 minutes (or 5 cycles as a catch-all)
-        self.post_pvoutput = stgs.PVOutput.enable is True and \
-                    (stgs.pg.test_mode or t_now % 5 == 2 or \
-                    stgs.pg.loop_counter > stgs.pg.pvo_tstamp + 4)
 
         # Summarise daily data at PVOutput.org
         self.resumm_pvoutput = stgs.PVOutput.enable is True and \
@@ -944,21 +944,28 @@ if __name__ == '__main__':
                 inverter.get_latest_data()
                 CO2_USAGE_VAR = int(env_obj.co2_intensity * inverter.grid_power / 1000)
 
+                if stgs.pg.t_now_mins > inverter.read_time_mins + 7:
+                    logger.critical("Inverter last seen at: "+ t_to_hrs(inverter.read_time_mins))
+
+                # Publish data to PVOutput.org
+                if stgs.PVOutput.enable is True and \
+                    (stgs.pg.test_mode or \
+                    stgs.pg.t_now_mins == inverter.read_time_mins + 1 or \
+                    stgs.pg.loop_counter > stgs.pg.pvo_tstamp + 5):
+
+                    stgs.pg.pvo_tstamp = stgs.pg.loop_counter
+                    if stgs.pg.t_now_mins < 6:  # Reset totals to avoid PVOutput carry-over issue
+                        inverter.pv_energy = 0
+                        inverter.grid_energy = 0
+                    do_put_pv_output = threading.Thread(target=put_pv_output)
+                    do_put_pv_output.daemon = True
+                    do_put_pv_output.start()
+
                 #  Turn loads on or off. Check every minute
                 if stgs.LoadMgt.enable is True:
                     do_balance_loads = threading.Thread(target=balance_loads())
                     do_balance_loads.daemon = True
                     do_balance_loads.start()
-
-                # Publish data to PVOutput.org
-                if events.post_pvoutput is True:
-                    if stgs.pg.t_now_mins < 6:
-                        inverter.pv_energy = 0  # Reset totals to prevent carry-over issue with PVOutput
-                        inverter.grid_energy = 0
-                    stgs.pg.pvo_tstamp = stgs.pg.loop_counter
-                    do_put_pv_output = threading.Thread(target=put_pv_output)
-                    do_put_pv_output.daemon = True
-                    do_put_pv_output.start()
 
                 # Update PVOutput daily summary to reflect any IO Smart charging
                 if events.resumm_pvoutput:
