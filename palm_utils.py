@@ -50,8 +50,9 @@ logger = logging.getLogger(__name__)
 # v1.0.0    15/Jul/23 Random start time, Solcast data correction, IO compatibility, 48-hour fcast
 # v1.1.0    06/Aug/23 Split out generic functions as palm_utils.py, remove randomised start time
 # v1.1.0a   11/Nov/23 Fixed resume operation after daytime charging, bugfix for chart generation
+# v1.1.1    23/Mar/24 Improved SoC calcs with additional backward pass to determine min_charge
 
-PALM_VERSION = "v1.1.0a"
+PALM_VERSION = "v1.1.1"
 # -*- coding: utf-8 -*-
 # pylint: disable=logging-not-lazy
 # pylint: disable=consider-using-f-string
@@ -399,15 +400,15 @@ class GivEnergyObj:
         wgt_90 = max(0, weight - 50)
 
         logger.info("")
-        logger.info("{:<20} {:>10} {:>10} {:>10} {:>10}  {:>10} {:>10}".format("SoC Calc;",
-            "Day", "Hour", "Charge", "Cons", "Gen", "SoC"))
+        logger.info("{:<20} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}".\
+            format("SoC Calc;", "Day", "Hour", "Charge", "Cons", "Gen", "SoC", "Min", "Max"))
 
         # Definitions for export of SoC forecast in chart form
-        plot_x = ["Time"]
-        plot_y1 = ["Calculated SoC"]
-        plot_y2 = ["Adjusted SoC"]
-        plot_y3 = ["Max"]
-        plot_y4 = ["Reserve"]
+        tgt_time = ["Time"]
+        tgt_soc_raw = ["Calculated SoC"]
+        tgt_soc_adj = ["Adjusted SoC"]
+        tgt_max_line = ["Max"]
+        tgt_rsv_line = ["Reserve"]
 
         if stgs.GE.end_time != "":
             end_charge_period = int(stgs.GE.end_time[0:2]) * 2
@@ -423,10 +424,9 @@ class GivEnergyObj:
         # The clever bit:
         # Start with battery at reserve %. For each 30-minute slot of the coming day, calculate
         # the battery charge based on forecast generation and historical usage. Capture values
-        # for maximum charge and also the minimum charge value at any time before the maximum.
+        # for maximum charge and also the minimum charge that occurs before the maximum.
 
         day = 0
-        diff = 0
         while day < 2:  # Repeat for tomorrow and next day
             batt_charge[0] = max_charge = min_charge = reserve_energy
             est_gen = 0
@@ -444,22 +444,29 @@ class GivEnergyObj:
                         max(-1 * stgs.GE.charge_rate,
                         min(stgs.GE.charge_rate, (est_gen - total_load))))
 
-                # Capture min charge on lowest point on down-slope before charge reaches 100%
-                # or max charge if on an up slope after overnight charge
-                if (batt_charge[i] <= batt_charge[i - 1] and
-                    max_charge < batt_max_charge):
+                # Forward pass: Capture min charge before charge exceeds overnight value
+                # and max charge during the day.
+                # At this point in the code, min_charge is the last minimum before the charge
+                # exceeds the overnight value. It may not be the last, that needs a second pass.
+                if batt_charge[i] < batt_charge[i-1] and max_charge <= reserve_energy:
                     min_charge = min(min_charge, batt_charge[i])
                 elif i > end_charge_period:  # Charging after overnight boost
                     max_charge = max(max_charge, batt_charge[i])
 
-                logger.info("{:<20} {:>10} {:>10} {:>10} {:>10}  {:>10} {:>10}".format("SoC Calc;",
-                    day, t_to_hrs(i * 30), round(batt_charge[i], 2), round(total_load, 2),
-                    round(est_gen, 2), int(100 * batt_charge[i] / batt_max_charge)))
+                logger.info("{:<20} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}".\
+                    format("SoC Calc;", \
+                        day, t_to_hrs(i * 30), \
+                        round(batt_charge[i], 2), \
+                        round(total_load, 2), round(est_gen, 2), \
+                        int(100 * batt_charge[i] / batt_max_charge), \
+                        int(100 * min_charge/batt_max_charge), \
+                        int(100 * max_charge/batt_max_charge)))
 
-                plot_x.append(t_to_hrs((day*48 + i) * 30))  # Time
-                plot_y1.append(int(100 * batt_charge[i]/batt_max_charge))  # Baseline SoC line
-                plot_y3.append(100)  # Upper limit line
-                plot_y4.append(stgs.GE.batt_reserve)  # Lower limit line
+                # These arrays are used for the second pass and to plot the workings (if needed)
+                tgt_time.append(t_to_hrs((day*48 + i) * 30))  # Time
+                tgt_soc_raw.append(int(100 * batt_charge[i]/batt_max_charge))  # Baseline SoC line
+                tgt_max_line.append(100)  # Upper limit line for chart readability
+                tgt_rsv_line.append(stgs.GE.batt_reserve)  # Lower limit line
 
                 i += 1
 
@@ -468,25 +475,44 @@ class GivEnergyObj:
 
             day += 1
 
+        # Backward pass. The min charge value above is the first of the day, there may be others
+        # Search the SoC data from the max point backwards to find the true minimum
+        day = 0
+        while day < 2:  # Repeat for tomorrow and next day
+            i = 47 + day * 48
+            search_window = False
+            while i > day * 48:
+                if int(tgt_soc_raw[i]) == int(max_charge_pcnt[day]):
+                    search_window = True
+                if search_window:
+                    min_charge_pcnt[day] = min(int(min_charge_pcnt[day]), int(tgt_soc_raw[i]))
+                i -= 1
+            day += 1
+
+        logger.info("SoC Calc; Min (day 0, day 1) = "+\
+            str(min_charge_pcnt[0])+ ", "+ str(min_charge_pcnt[1]))
+        logger.info("SoC Calc; Max (day 0, day 1) = "+\
+            str(max_charge_pcnt[0])+ ", "+ str(max_charge_pcnt[1]))
+
+        # We now have the four values of max & min charge for tomorrow & overmorrow
+        # Check if overmorrow is better than tomorrow and there is opportunity to reduce target
+        # to avoid residual charge at the end of the day in anticipation of a sunny day.
+        # Do this by implying that there will be more than forecast generation
+        max_charge_pc = max_charge_pcnt[0]  # Working value
+        min_charge_pc = min_charge_pcnt[0]  # Working value
+
+        if max_charge_pcnt[1] > 100 and  max_charge_pcnt[0] < 100:
+            logger.info("SoC Calc; Overmorrow correction enabled")
+            max_charge_pc += int((max_charge_pcnt[1] - 100) / 2)
+        else:
+            logger.info("SoC Calc; Overmorrow correction not needed/enabled")
+
         # low_soc is the minimum SoC target. Provide more buffer capacity in shoulder months
         # when load is likely to be more variable, e.g. heating
         if stgs.pg.month in stgs.GE.shoulder:
             low_soc = int(stgs.GE.max_soc_target)
         else:
             low_soc = int(stgs.GE.min_soc_target)
-
-        max_charge_pc = max_charge_pcnt[0]
-        min_charge_pc = min_charge_pcnt[0]
-
-        # We now have the four values of max & min charge for tomorrow & overmorrow
-        # Check if overmorrow is better than tomorrow and there is opportunity to reduce target
-        # to avoid residual charge at the end of the day in anticipation of a sunny day.
-        # Reduce the target by implying that there will be more than forecast generation
-        if max_charge_pcnt[1] > 100 and  max_charge_pcnt[0] < 100:
-            logger.info("Overmorrow correction enabled")
-            max_charge_pc += int((max_charge_pcnt[1] - 100) / 2)
-        else:
-            logger.info("Overmorrow correction not needed/enabled")
 
         # The really clever bit: reduce the target SoC to the greater of:
         #     The surplus above 100% for max_charge_pcnt
@@ -496,37 +522,37 @@ class GivEnergyObj:
         # Range check the resulting value
         tgt_soc = int(min(tgt_soc, 100))  # Limit range to 100%
 
-        # Produce y2 = adjusted plot
+        # Produce plot of adjusted SoC
         day = 0
         diff = tgt_soc
         while day < 2:
             i = 0
             while i < 48:
                 if day == 1 and i == 0:
-                    diff = plot_y2[48] - plot_y1[49]
-                if plot_y1[day*48 + i + 1] + diff > 100:  # Correct for SoC > 100%
-                    diff = 100 - plot_y1[day*48 + i + 1]  # Bugfix v1.1.0a
-                plot_y2.append(plot_y1[day*48 + i + 1] + diff)
+                    diff = tgt_soc_adj[48] - tgt_soc_raw[49]
+                if tgt_soc_raw[day*48 + i + 1] + diff > 100:  # Correct for SoC > 100%
+                    diff = 100 - tgt_soc_raw[day*48 + i + 1]  # Bugfix v1.1.0a
+                tgt_soc_adj.append(tgt_soc_raw[day*48 + i + 1] + diff)
                 i += 1
             day += 1
 
         # Store plot data
-        self.plot[0] = str(plot_x)
-        self.plot[1] = str(plot_y1)
-        self.plot[2] = str(plot_y2)
-        self.plot[3] = str(plot_y3)
-        self.plot[4] = str(plot_y4)
+        self.plot[0] = str(tgt_time)
+        self.plot[1] = str(tgt_soc_raw)
+        self.plot[2] = str(tgt_soc_adj)
+        self.plot[3] = str(tgt_max_line)
+        self.plot[4] = str(tgt_rsv_line)
 
         logger.info("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("SoC Calc Summary;",
             "Max Charge", "Min Charge", "Max %", "Min %", "Target SoC"))
         logger.info("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("SoC Calc Summary;",
             round(max_charge, 2), round(min_charge, 2),
-            max_charge_pc, min_charge_pc, tgt_soc))
+            max_charge_pcnt[0], min_charge_pcnt[0], "N/A"))
         logger.info("{:<25} {:>10} {:>10} {:>10} {:>10} {:>10}".format("SoC (Adjusted);",
             round(max_charge, 2), round(min_charge, 2),
-            max_charge_pc + tgt_soc, min_charge_pc + tgt_soc, "\n"))
+            max_charge_pc + tgt_soc, min_charge_pc + tgt_soc, tgt_soc))
 
-        if commit:
+        if commit:  # Issue command to set new SoC and exit
             self.tgt_soc = tgt_soc
             return "set_soc"
 
