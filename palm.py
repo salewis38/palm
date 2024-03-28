@@ -54,8 +54,9 @@ import palm_settings as stgs
 # v1.1.2    03/Dec/23 Added Shelly switch to load balancing, updated Events logic for robustness
 # v1.1.3    01/Jan/24 Added routine to update PVOutput daily stats with IO Smart Charge periods
 # v1.1.3a   28/Jan/24 Revise PVOutput write timing to improve alignment of inverter and local data
+# V1.1.3b   28/Mar/24 Remove manual hold function, fixed in latest AC3 firmware. Remove v3 from PVO payload
 
-PALM_VERSION = "v1.1.3a"
+PALM_VERSION = "v1.1.3b"
 # -*- coding: utf-8 -*-
 # pylint: disable=logging-not-lazy
 # pylint: disable=consider-using-f-string
@@ -461,10 +462,10 @@ def put_pv_output():
         "d"   : post_date
     }
 
+    # v3 removed from payload to avoid import/export creep during the day
     part_payload = {
         "v1"  : inverter.pv_energy,
         "v2"  : inverter.pv_power,
-        "v3"  : inverter.grid_energy,
         "v4"  : load_pwr,
         "v5"  : env_obj.temp_deg_c,
         "v6"  : inverter.line_voltage,
@@ -790,7 +791,6 @@ if __name__ == '__main__':
         logger.critical(MESSAGE)
 
     EV_ACTIVE_VAR: bool = False
-    MANUAL_HOLD_VAR: bool = False  # Fix for inverter hunting after hitting SoC target
 
     while True:  # Main Loop
         # Current time definitions
@@ -879,17 +879,6 @@ if __name__ == '__main__':
 
                 # Reset sunrise and sunset for next day
                 env_obj.reset_sr_ss()
-
-                # Pause/resume battery once charged to compensate for AC3 inverter oscillation bug
-                # Covers charge period both in early-morning and spanning midnight
-                if inverter.tgt_soc < 100 and events.off_pk is True and MANUAL_HOLD_VAR is False:
-                    if -2 < (inverter.soc - inverter.tgt_soc) < 2:  # Avoids sampling issues
-                        inverter.set_mode("pause")
-                        MANUAL_HOLD_VAR = True
-                if events.off_pk_end is True or \
-                    events.winter is False and events.off_pk_ending is True:
-                    inverter.set_mode("resume")
-                    MANUAL_HOLD_VAR = False
 
                 # Poll car charger during additional Intelligent Octopus slots
                 # If car is charging, either pause or charge inverter, depending on battery state
