@@ -135,7 +135,12 @@ class GivEnergyObj:
                     while i < 5:
                         self.sys_status[i] = self.sys_status[0]
                         i += 1
+
                 self.read_time_mins = t_to_mins(self.sys_status[0]['time'][11:])
+                # Check for BST and convert to local time
+                if time.strftime("%z", time.localtime()) == "+0100":
+                    self.read_time_mins = (self.read_time_mins + 60) % 1440
+                
                 self.line_voltage = float(self.sys_status[0]['grid']['voltage'])
                 self.grid_power = -1 * int(self.sys_status[0]['grid']['power'])  # -ve = export
                 self.pv_power = int(self.sys_status[0]['solar']['power'])
