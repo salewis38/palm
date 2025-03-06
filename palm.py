@@ -746,6 +746,7 @@ class EventsObj:
 
         # Summarise daily data at PVOutput.org
         self.resumm_pvoutput = stgs.PVOutput.enable is True and \
+                    stgs.Shelly.em0_url != "" and \
                     (stgs.pg.test_mode and stgs.pg.loop_counter == 4 or \
                     stgs.pg.t_now_mins == 1438)
 
