@@ -51,8 +51,11 @@ logger = logging.getLogger(__name__)
 # v1.1.0    06/Aug/23 Split out generic functions as palm_utils.py, remove randomised start time
 # v1.1.0a   11/Nov/23 Fixed resume operation after daytime charging, bugfix for chart generation
 # v1.1.1    23/Mar/24 Improved SoC calcs with additional backward pass to determine min_charge
+# v1.1.2    12/Apr/24 Added extra GivEnergy API commands
+# v1.1.3    12/May/24 Added get_presets to GE class
+# v1.1.4    09/Jul/25 Relaxed response code checking from Givenergy server
 
-PALM_VERSION = "v1.1.1"
+PALM_VERSION = "v1.1.4"
 # -*- coding: utf-8 -*-
 # pylint: disable=logging-not-lazy
 # pylint: disable=consider-using-f-string
@@ -97,6 +100,25 @@ class GivEnergyObj:
         for line in self.cmd_list:
             logger.debug(str(line['id'])+ "- "+ str(line['name']))
 
+    def get_presets(self):
+        """Returns list of valid API commands"""
+
+        url = stgs.GE.url + "settings"
+        key = stgs.GE.key
+        headers = {
+            'Authorization': 'Bearer  ' + key,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        }
+
+        try:
+            resp = requests.request('GET', url, headers=headers, timeout=10)
+        except requests.exceptions.RequestException as error:
+            logger.error(error)
+            return
+        return json.dumps(resp.json(), indent = 4)
+
+
     def get_latest_data(self):
         """Download latest data from GivEnergy."""
 
@@ -140,7 +162,7 @@ class GivEnergyObj:
                 # Check for BST and convert to local time
                 if time.strftime("%z", time.localtime()) == "+0100":
                     self.read_time_mins = (self.read_time_mins + 60) % 1440
-                
+
                 self.line_voltage = float(self.sys_status[0]['grid']['voltage'])
                 self.grid_power = -1 * int(self.sys_status[0]['grid']['power'])  # -ve = export
                 self.pv_power = int(self.sys_status[0]['solar']['power'])
@@ -204,7 +226,7 @@ class GivEnergyObj:
             except requests.exceptions.RequestException as error:
                 logger.error(error)
                 return load_array
-            if resp.status_code != 200:
+            if 299 < resp.status_code < 200:
                 logger.error("Invalid response: "+ str(resp.status_code))
                 return load_array
 
@@ -295,7 +317,7 @@ class GivEnergyObj:
                 except requests.exceptions.RequestException as error:
                     logger.error(error)
                     return
-                if resp.status_code != 201:
+                if 299 < resp.status_code < 200:
                     logger.info("Invalid response: "+ str(resp.status_code))
                     return
 
@@ -319,7 +341,7 @@ class GivEnergyObj:
             except resp.exceptions.RequestException as error:
                 logger.error(error)
                 return
-            if resp.status_code != 201:
+            if 299 < resp.status_code < 200:
                 logger.error("Invalid response: "+ str(resp.status_code))
                 return
 
@@ -330,7 +352,50 @@ class GivEnergyObj:
                 logger.error("Readback failed on GivEnergy API... Expected " +
                     str(value) + ", Read: "+ str(returned_cmd))
 
-        if cmd == "set_soc":  # Sets target SoC to value
+        if cmd == "charge_now":   # Replicates App command for CHARGE AT FULL POWER
+            set_inverter_register("64", "00:01")
+            set_inverter_register("65", "23:59")
+            set_inverter_register("66", "true")
+            set_inverter_register("77", "100")
+            set_inverter_register("72", "3000")
+
+        elif cmd == "charge_now_soc":
+            set_inverter_register("77", str(self.tgt_soc))
+            set_inverter_register("64", "00:01")
+            set_inverter_register("65", "23:59")
+
+        elif cmd == "discharge_now":  # Replicates App command for DISCHARGE AT FULL POWER
+            set_inverter_register("24", "false")
+            set_inverter_register("53", "00:01")
+            set_inverter_register("54", "23:59")
+            set_inverter_register("56", "true")
+            set_inverter_register("66", "false")
+            set_inverter_register("73", "3000")
+
+        elif cmd == "pause":
+            set_inverter_register("72", "0")
+            set_inverter_register("73", "0")
+
+        elif cmd == "pause_charge":
+            set_inverter_register("72", "0")
+
+        elif cmd == "pause_discharge":
+            set_inverter_register("73", "0")
+
+        elif cmd == "play":  # Replicates App commands for PLAY
+            set_inverter_register("24", "true")
+            set_inverter_register("53", "00:01")
+            set_inverter_register("54", "23:59")
+            set_inverter_register("56", "false")
+            set_inverter_register("66", "true")
+            set_inverter_register("72", "3000")
+            set_inverter_register("73", "3000")
+            self.set_mode("set_soc")
+
+        elif cmd == "resume":  # Alias for legacy instruction
+            self.set_mode("play")
+
+        elif cmd == "set_soc":  # Sets target SoC to value
             set_inverter_register("77", str(self.tgt_soc))
             if stgs.GE.start_time != "":
                 start_time = t_to_hrs(t_to_mins(stgs.GE.start_time))
@@ -345,31 +410,6 @@ class GivEnergyObj:
                 set_inverter_register("64", stgs.GE.start_time)
             if stgs.GE.end_time_winter != "":
                 set_inverter_register("65", stgs.GE.end_time_winter)
-
-        elif cmd == "charge_now":
-            set_inverter_register("77", "100")
-            set_inverter_register("64", "00:01")
-            set_inverter_register("65", "23:59")
-
-        elif cmd == "charge_now_soc":
-            set_inverter_register("77", str(self.tgt_soc))
-            set_inverter_register("64", "00:01")
-            set_inverter_register("65", "23:59")
-
-        elif cmd == "pause":
-            set_inverter_register("72", "0")
-            set_inverter_register("73", "0")
-
-        elif cmd == "pause_charge":
-            set_inverter_register("72", "0")
-
-        elif cmd == "pause_discharge":
-            set_inverter_register("73", "0")
-
-        elif cmd == "resume":
-            set_inverter_register("72", "3000")
-            set_inverter_register("73", "3000")
-            self.set_mode("set_soc")
 
         elif cmd == "test":
             logger.debug("Test set_mode")
@@ -591,7 +631,7 @@ class SolcastObj:
             except requests.exceptions.RequestException as error:
                 logger.error(error)
                 return False, ""
-            if resp.status_code != 200:
+            if 299 < resp.status_code < 200:
                 logger.error("Invalid response: "+ str(resp.status_code))
                 return False, ""
 
